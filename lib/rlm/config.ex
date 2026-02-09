@@ -14,8 +14,6 @@ defmodule RLM.Config do
   ]
 
   def load(overrides \\ []) do
-    legacy_context_window_tokens = get(overrides, :context_window_tokens, nil)
-
     %__MODULE__{
       api_base_url: get(overrides, :api_base_url, "https://openrouter.ai/api/v1"),
       api_key: get(overrides, :api_key, nil),
@@ -24,12 +22,12 @@ defmodule RLM.Config do
       max_iterations: get(overrides, :max_iterations, 25),
       max_depth: get(overrides, :max_depth, 5),
       context_window_tokens_large:
-        get(overrides, :context_window_tokens_large, legacy_context_window_tokens || 100_000),
+        get(overrides, :context_window_tokens_large, 100_000),
       context_window_tokens_small:
-        get(overrides, :context_window_tokens_small, legacy_context_window_tokens || 100_000),
+        get(overrides, :context_window_tokens_small, 100_000),
       truncation_head: get(overrides, :truncation_head, 4000),
       truncation_tail: get(overrides, :truncation_tail, 4000),
-      eval_timeout: get(overrides, :eval_timeout, 30_000)
+      eval_timeout: get(overrides, :eval_timeout, 300_000)
     }
   end
 

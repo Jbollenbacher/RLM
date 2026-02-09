@@ -22,37 +22,38 @@ defmodule RLM.Eval do
         end
 
         try do
-          {result, new_bindings} =
-            Code.eval_string(wrapped_code, bindings, file: "rlm_repl", line: 0)
+          {{result, new_bindings}, diagnostics} =
+            Code.with_diagnostics(fn ->
+              Code.eval_string(wrapped_code, bindings, file: "rlm_repl", line: 0)
+            end)
 
-          send(caller, {:eval_result, :ok, result, new_bindings})
+          diagnostics_text = format_diagnostics(diagnostics)
+          send(caller, {:eval_result, :ok, result, new_bindings, diagnostics_text})
         rescue
           e ->
             formatted = Exception.format(:error, e, __STACKTRACE__)
-            IO.write(stdout_device, formatted)
-            send(caller, {:eval_result, :error, formatted, bindings})
+            send(caller, {:eval_result, :error, formatted, bindings, ""})
         catch
           kind, value ->
             formatted = Exception.format(kind, value, __STACKTRACE__)
-            IO.write(stdout_device, formatted)
-            send(caller, {:eval_result, :error, formatted, bindings})
+            send(caller, {:eval_result, :error, formatted, bindings, ""})
         end
       end)
 
     ref = Process.monitor(pid)
 
     receive do
-      {:eval_result, :ok, result, new_bindings} ->
+      {:eval_result, :ok, result, new_bindings, diagnostics_text} ->
         Process.demonitor(ref, [:flush])
         {_, stdout} = StringIO.contents(stdout_device)
         StringIO.close(stdout_device)
-        {:ok, stdout, result, new_bindings}
+        {:ok, stdout <> diagnostics_text, result, new_bindings}
 
-      {:eval_result, :error, _formatted, original_bindings} ->
+      {:eval_result, :error, formatted, original_bindings, diagnostics_text} ->
         Process.demonitor(ref, [:flush])
         {_, stdout} = StringIO.contents(stdout_device)
         StringIO.close(stdout_device)
-        {:error, stdout, original_bindings}
+        {:error, stdout <> diagnostics_text <> formatted, original_bindings}
 
       {:DOWN, ^ref, :process, ^pid, reason} ->
         {_, stdout} = StringIO.contents(stdout_device)
@@ -66,5 +67,25 @@ defmodule RLM.Eval do
         StringIO.close(stdout_device)
         {:error, "Evaluation timed out after #{timeout}ms\n#{stdout}", bindings}
     end
+  end
+
+  defp format_diagnostics([]), do: ""
+
+  defp format_diagnostics(diagnostics) do
+    Enum.map_join(diagnostics, "\n", fn diag ->
+      file = diag[:file] || diag[:source] || "unknown"
+      {line, col} = diag[:position] || {nil, nil}
+
+      location =
+        case {line, col} do
+          {nil, _} -> file
+          {line, nil} -> "#{file}:#{line}"
+          {line, col} -> "#{file}:#{line}:#{col}"
+        end
+
+      severity = diag[:severity] || :warning
+      message = diag[:message] || "diagnostic"
+      "#{severity}: #{message}\n  #{location}"
+    end) <> "\n"
   end
 end

@@ -26,10 +26,10 @@ defmodule RLM.Loop do
     user_msg = %{role: :user, content: RLM.Prompt.initial_user_message(context, query)}
     initial_history = [system_msg, user_msg]
 
-    iterate(initial_history, initial_bindings, model, config, depth, 0)
+    iterate(initial_history, initial_bindings, model, config, depth, 0, [])
   end
 
-  defp iterate(history, bindings, model, config, depth, iteration) do
+  defp iterate(history, bindings, model, config, depth, iteration, prev_codes) do
     if iteration >= config.max_iterations do
       {:error, "Max iterations (#{config.max_iterations}) reached without final_answer"}
     else
@@ -39,7 +39,7 @@ defmodule RLM.Loop do
 
       case RLM.LLM.chat(history, model, config) do
         {:ok, response} ->
-          handle_response(response, history, bindings, model, config, depth, iteration)
+          handle_response(response, history, bindings, model, config, depth, iteration, prev_codes)
 
         {:error, reason} ->
           {:error, "LLM call failed at depth=#{depth} iteration=#{iteration}: #{reason}"}
@@ -97,11 +97,45 @@ defmodule RLM.Loop do
   end
 
   defp context_window_tokens_for_model(config, model) do
-    cond do
-      model == config.model_small -> config.context_window_tokens_small
-      model == config.model_large -> config.context_window_tokens_large
-      true -> config.context_window_tokens_large
+    if config.model_large == config.model_small do
+      max(config.context_window_tokens_large, config.context_window_tokens_small)
+    else
+      cond do
+        model == config.model_large -> config.context_window_tokens_large
+        model == config.model_small -> config.context_window_tokens_small
+        true -> config.context_window_tokens_large
+      end
     end
+  end
+
+  @doc false
+  def track_code_repetition(prev_codes, code) do
+    repeated_code? = repeated_code?(prev_codes, code)
+    updated_prev_codes = update_prev_codes(prev_codes, code)
+    {updated_prev_codes, repeated_code?}
+  end
+
+  defp repeated_code?(prev_codes, code) do
+    case prev_codes do
+      [last, second | _] -> last == code and second == code
+      _ -> false
+    end
+  end
+
+  defp update_prev_codes(prev_codes, code) do
+    [code | prev_codes] |> Enum.take(3)
+  end
+
+  defp repetition_nudge do
+    """
+    [Repeated Code Detected]
+
+    Your last three code blocks were identical. You appear to be stuck.
+    Try a different approach. Consider:
+    - Using IO.inspect() to examine values
+    - Breaking the problem into smaller steps
+    - Using list_bindings() to check your current state
+    """
   end
 
   defp serialize_history(messages) do
@@ -128,10 +162,12 @@ defmodule RLM.Loop do
     """
   end
 
-  defp handle_response(response, history, bindings, model, config, depth, iteration) do
+  defp handle_response(response, history, bindings, model, config, depth, iteration, prev_codes) do
     case RLM.LLM.extract_code(response) do
       {:ok, code} ->
         Logger.debug("[RLM] depth=#{depth} iteration=#{iteration} code=#{String.slice(code, 0, 200)}")
+
+        {prev_codes, repeated_code?} = track_code_repetition(prev_codes, code)
 
         # Add assistant message to history
         history = history ++ [%{role: :assistant, content: response}]
@@ -156,6 +192,14 @@ defmodule RLM.Loop do
         feedback = RLM.Prompt.format_eval_output(truncated_stdout, full_stderr, status, result)
         history = history ++ [%{role: :user, content: feedback}]
 
+        history =
+          if repeated_code? do
+            Logger.warning("[RLM] depth=#{depth} iteration=#{iteration} repeated code detected")
+            history ++ [%{role: :user, content: repetition_nudge()}]
+          else
+            history
+          end
+
         # Update history bindings
         new_bindings =
           new_bindings
@@ -173,7 +217,7 @@ defmodule RLM.Loop do
             {:error, to_string(reason)}
 
           nil ->
-            iterate(history, new_bindings, model, config, depth, iteration + 1)
+            iterate(history, new_bindings, model, config, depth, iteration + 1, prev_codes)
 
           other when other != nil ->
             Logger.info("[RLM] depth=#{depth} completed with raw answer at iteration=#{iteration}")
@@ -191,7 +235,7 @@ defmodule RLM.Loop do
               %{role: :user, content: "[No code block found. Please respond with an ```elixir code block.]"}
             ]
 
-        iterate(history, bindings, model, config, depth, iteration + 1)
+        iterate(history, bindings, model, config, depth, iteration + 1, [])
     end
   end
 

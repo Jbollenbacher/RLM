@@ -111,5 +111,57 @@ defmodule RLM.LoopTest do
       assert combined =~ String.duplicate("a", 20)
       assert combined =~ String.duplicate("b", 20)
     end
+
+    test "uses the largest window when large and small models are identical" do
+      config =
+        RLM.Config.load(
+          model_large: "same-model",
+          model_small: "same-model",
+          context_window_tokens_large: 1000,
+          context_window_tokens_small: 50,
+          truncation_head: 5,
+          truncation_tail: 5
+        )
+
+      history = [
+        %{role: :system, content: "sys"},
+        %{role: :user, content: String.duplicate("a", 400)}
+      ]
+
+      bindings = [context: "x"]
+
+      {history_result, bindings_result} =
+        RLM.Loop.maybe_compact(history, bindings, config.model_large, config)
+
+      refute Keyword.has_key?(bindings_result, :compacted_history)
+      assert history_result == history
+    end
+  end
+
+  describe "code repetition detection" do
+    test "flags on third identical code block" do
+      {prev_codes, repeated?} = RLM.Loop.track_code_repetition([], "a")
+      refute repeated?
+
+      {prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "a")
+      refute repeated?
+
+      {_prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "a")
+      assert repeated?
+    end
+
+    test "requires consecutive repetitions" do
+      {prev_codes, repeated?} = RLM.Loop.track_code_repetition([], "a")
+      refute repeated?
+
+      {prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "b")
+      refute repeated?
+
+      {prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "b")
+      refute repeated?
+
+      {_prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "b")
+      assert repeated?
+    end
   end
 end

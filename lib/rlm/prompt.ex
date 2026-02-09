@@ -35,7 +35,15 @@ defmodule RLM.Prompt do
       if status == :ok and result != nil do
         result_preview = inspect(result, limit: 20, printable_limit: 200)
         result_preview = String.slice(result_preview, 0, 500)
-        parts ++ ["=> #{result_preview}"]
+
+        truncation_note =
+          if is_binary(result) and byte_size(result) > 500 do
+            " (#{byte_size(result)} bytes, truncated)"
+          else
+            ""
+          end
+
+        parts ++ ["=> #{result_preview}#{truncation_note}"]
       else
         parts
       end

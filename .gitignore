@@ -38,6 +38,7 @@ rlm-*.tar
 rlm-problem-statement*.md
 rlm-sysprompt*.md
 *plan.md
+*temp.txt
 
 # Elixir language server stuff
 .elixir_ls/
