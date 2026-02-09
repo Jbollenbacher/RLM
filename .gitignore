@@ -37,6 +37,7 @@ rlm-*.tar
 # Spec docs (private)
 rlm-problem-statement*.md
 rlm-sysprompt*.md
+*plan.md
 
 # Elixir language server stuff
 .elixir_ls/
