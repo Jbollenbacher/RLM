@@ -22,6 +22,9 @@ cp .env.example .env  # then edit .env
 
 # Run tests
 mix test
+
+# Run CLI
+mix rlm
 ```
 
 ## Architecture
