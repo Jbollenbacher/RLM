@@ -1,0 +1,42 @@
+# The directory Mix will write compiled artifacts to.
+/_build/
+
+# If you run "mix test --cover", coverage assets end up here.
+/cover/
+
+# The directory Mix downloads your dependencies sources to.
+/deps/
+
+# Where third-party dependencies like ExDoc output generated docs.
+/doc/
+
+# Temporary files, for example, from tests.
+/tmp/
+
+# If the VM crashes, it generates a dump, let's ignore it too.
+erl_crash.dump
+
+# Also ignore archive artifacts (built via "mix archive.build").
+*.ez
+
+# Ignore package tarball (built via "mix hex.build").
+rlm-*.tar
+
+# Environment variables (API keys)
+.env
+
+# OS files
+.DS_Store
+
+# Claude Code local settings
+.claude/
+
+# ElixirLS
+.elixir_ls/
+
+# Spec docs (private)
+rlm-problem-statement*.md
+rlm-sysprompt*.md
+
+# Elixir language server stuff
+.elixir_ls/
