@@ -26,12 +26,24 @@ defmodule RLM.Loop do
     user_msg = %{role: :user, content: RLM.Prompt.initial_user_message(context, query)}
     initial_history = [system_msg, user_msg]
 
-    iterate(initial_history, initial_bindings, model, config, depth, 0, [])
+    {result, _history, _bindings} =
+      iterate(initial_history, initial_bindings, model, config, depth, 0, [])
+
+    case result do
+      {:ok, answer} -> {:ok, answer}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  def run_turn(history, bindings, model, config, depth) do
+    iterate(history, bindings, model, config, depth, 0, [])
   end
 
   defp iterate(history, bindings, model, config, depth, iteration, prev_codes) do
     if iteration >= config.max_iterations do
-      {:error, "Max iterations (#{config.max_iterations}) reached without final_answer"}
+      {{:error, "Max iterations (#{config.max_iterations}) reached without final_answer"}, history,
+       bindings}
     else
       Logger.info("[RLM] depth=#{depth} iteration=#{iteration}")
 
@@ -42,7 +54,8 @@ defmodule RLM.Loop do
           handle_response(response, history, bindings, model, config, depth, iteration, prev_codes)
 
         {:error, reason} ->
-          {:error, "LLM call failed at depth=#{depth} iteration=#{iteration}: #{reason}"}
+          {{:error, "LLM call failed at depth=#{depth} iteration=#{iteration}: #{reason}"}, history,
+           bindings}
       end
     end
   end
@@ -211,17 +224,17 @@ defmodule RLM.Loop do
         case Keyword.get(new_bindings, :final_answer) do
           {:ok, answer} ->
             Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
-            {:ok, to_string(answer)}
+            {{:ok, to_string(answer)}, history, new_bindings}
 
           {:error, reason} ->
-            {:error, to_string(reason)}
+            {{:error, to_string(reason)}, history, new_bindings}
 
           nil ->
             iterate(history, new_bindings, model, config, depth, iteration + 1, prev_codes)
 
           other when other != nil ->
             Logger.info("[RLM] depth=#{depth} completed with raw answer at iteration=#{iteration}")
-            {:ok, to_string(other)}
+            {{:ok, to_string(other)}, history, new_bindings}
         end
 
       {:error, :no_code_block} ->
@@ -239,7 +252,8 @@ defmodule RLM.Loop do
     end
   end
 
-  defp build_lm_query(config, depth) do
+  @doc false
+  def build_lm_query(config, depth) do
     fn text, opts ->
       model_size = Keyword.fetch!(opts, :model_size)
       model = if model_size == :large, do: config.model_large, else: config.model_small

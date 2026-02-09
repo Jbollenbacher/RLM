@@ -6,10 +6,10 @@ defmodule RLM.RecursionTest do
 
   describe "spec test 7: sub-LLM delegation" do
     test "summarizes a 100K document using lm_query" do
-      # Generate a 100K document with distinct sections
+      # Generate a 50K+ document with distinct sections (kept smaller to reduce runtime)
       sections =
-        for i <- 1..20 do
-          "Section #{i}: " <> String.duplicate("This is content for section #{i}. ", 100)
+        for i <- 1..10 do
+          "Section #{i}: " <> String.duplicate("This is content for section #{i}. ", 200)
         end
 
       context = Enum.join(sections, "\n\n")

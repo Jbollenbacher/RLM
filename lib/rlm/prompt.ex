@@ -19,6 +19,13 @@ defmodule RLM.Prompt do
     """
   end
 
+  @spec followup_user_message(String.t()) :: String.t()
+  def followup_user_message(query) do
+    """
+    Task: #{query}\
+    """
+  end
+
   @spec format_eval_output(String.t(), String.t(), :ok | :error, any()) :: String.t()
   def format_eval_output(stdout, stderr, status, result \\ nil) do
     parts = []
