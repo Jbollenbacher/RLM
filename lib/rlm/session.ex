@@ -78,12 +78,24 @@ defmodule RLM.Session do
 
   defp append_turn(context, role, message) do
     prefix = if context == "", do: "", else: "\n\n"
-    context <> prefix <> "[#{role}]\n" <> message
+    marker =
+      case role do
+        "User" -> RLM.Helpers.chat_marker(:user)
+        "Assistant" -> RLM.Helpers.chat_marker(:assistant)
+        other -> "[RLM_#{other}]"
+      end
+
+    context <> prefix <> marker <> "\n" <> message
   end
 
   defp append_assistant_to_context(context, {:ok, answer}),
-    do: append_turn(context, "Assistant", answer)
+    do: append_turn(context, "Assistant", format_message(answer))
 
   defp append_assistant_to_context(context, {:error, reason}),
-    do: append_turn(context, "Assistant", "Error: #{reason}")
+    do: append_turn(context, "Assistant", "Error: #{format_message(reason)}")
+
+  defp format_message(message) when is_binary(message), do: message
+
+  defp format_message(message),
+    do: inspect(message, pretty: true, limit: :infinity, printable_limit: :infinity)
 end

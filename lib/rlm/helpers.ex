@@ -70,6 +70,33 @@ defmodule RLM.Helpers do
     end
   end
 
+  @chat_user_marker "[RLM_User]"
+  @chat_assistant_marker "[RLM_Assistant]"
+
+  @spec chat_marker(:user | :assistant) :: String.t()
+  def chat_marker(:user), do: @chat_user_marker
+  def chat_marker(:assistant), do: @chat_assistant_marker
+
+  @spec latest_user_message(String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def latest_user_message(context) when is_binary(context) do
+    pattern =
+      ~r/^\[RLM_User\]\n(.*?)(?=^\[RLM_(?:User|Assistant)\]|\z)/ms
+
+    case Regex.scan(pattern, context) do
+      [] ->
+        {:error, "No chat entries found in context"}
+
+      matches ->
+        message =
+          matches
+          |> List.last()
+          |> Enum.at(1)
+          |> String.trim()
+
+        {:ok, message}
+    end
+  end
+
   defp matches?(pattern, line) when is_binary(pattern), do: String.contains?(line, pattern)
   defp matches?(%Regex{} = pattern, line), do: Regex.match?(pattern, line)
 

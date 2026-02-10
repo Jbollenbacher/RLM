@@ -8,7 +8,16 @@ defmodule RLM.Prompt do
   def initial_user_message(context, opts \\ []) do
     size = byte_size(context)
     line_count = context |> String.split("\n") |> length()
-    preview = String.slice(context, 0, 500)
+    {preview_label, preview_text} =
+      case RLM.Helpers.latest_user_message(context) do
+        {:ok, message} ->
+          {"Latest user message preview (head+tail 500 chars):",
+           RLM.Truncate.truncate(message, head: 250, tail: 250)}
+
+        {:error, _reason} ->
+          {"Context preview (head+tail 500 chars):",
+           RLM.Truncate.truncate(context, head: 250, tail: 250)}
+      end
     workspace_available = Keyword.get(opts, :workspace_available, false)
 
     workspace_note =
@@ -20,8 +29,8 @@ defmodule RLM.Prompt do
 
     """
     Input: #{size} bytes, #{line_count} lines.
-    Preview (first 500 chars):
-    #{preview}
+    #{preview_label}
+    #{preview_text}
 
     #{workspace_note}\
     """

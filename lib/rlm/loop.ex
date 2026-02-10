@@ -179,6 +179,11 @@ defmodule RLM.Loop do
     """
   end
 
+  defp normalize_answer(term) when is_binary(term), do: term
+
+  defp normalize_answer(term),
+    do: inspect(term, pretty: true, limit: :infinity, printable_limit: :infinity)
+
   defp handle_response(response, history, bindings, model, config, depth, iteration, prev_codes) do
     case RLM.LLM.extract_code(response) do
       {:ok, code} ->
@@ -228,17 +233,17 @@ defmodule RLM.Loop do
         case Keyword.get(new_bindings, :final_answer) do
           {:ok, answer} ->
             Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
-            {{:ok, to_string(answer)}, history, new_bindings}
+            {{:ok, normalize_answer(answer)}, history, new_bindings}
 
           {:error, reason} ->
-            {{:error, to_string(reason)}, history, new_bindings}
+            {{:error, normalize_answer(reason)}, history, new_bindings}
 
           nil ->
             iterate(history, new_bindings, model, config, depth, iteration + 1, prev_codes)
 
           other when other != nil ->
             Logger.info("[RLM] depth=#{depth} completed with raw answer at iteration=#{iteration}")
-            {{:ok, to_string(other)}, history, new_bindings}
+            {{:ok, normalize_answer(other)}, history, new_bindings}
         end
 
       {:error, :no_code_block} ->

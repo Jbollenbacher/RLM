@@ -2,6 +2,7 @@ defmodule RLM.Sandbox do
   defdelegate chunks(string, size), to: RLM.Helpers
   defdelegate grep(pattern, string), to: RLM.Helpers
   defdelegate preview(term, n \\ 500), to: RLM.Helpers
+  defdelegate latest_user_message(context), to: RLM.Helpers
 
   def ls(path \\ ".") do
     case Process.get(:rlm_workspace_root) do
