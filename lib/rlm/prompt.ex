@@ -26,7 +26,7 @@ defmodule RLM.Prompt do
         if workspace_read_only do
           "Workspace access: read-only. Use ls() and read_file() with relative paths.\n"
         else
-          "Workspace access: enabled. Use ls(), read_file(), and edit_file() with relative paths (no workspace/ prefix).\n"
+          "Workspace access: enabled. Use ls(), read_file(), edit_file(), and create_file() with relative paths (no workspace/ prefix).\n"
         end
       else
         ""

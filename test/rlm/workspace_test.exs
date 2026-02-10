@@ -58,4 +58,22 @@ defmodule RLM.WorkspaceTest do
     assert {:error, _reason} = RLM.Helpers.edit_file(root, "a.txt", patch)
   end
 
+  test "create_file creates a new file", %{root: root} do
+    assert {:ok, _message} = RLM.Helpers.create_file(root, "new.txt", "contents")
+    assert {:ok, "contents"} = RLM.Helpers.read_file(root, "new.txt")
+  end
+
+  test "create_file creates parent directories", %{root: root} do
+    assert {:ok, _message} = RLM.Helpers.create_file(root, "nested/dir/file.txt", "data")
+    assert {:ok, "data"} = RLM.Helpers.read_file(root, "nested/dir/file.txt")
+  end
+
+  test "create_file errors when file exists", %{root: root} do
+    assert {:error, _reason} = RLM.Helpers.create_file(root, "a.txt", "overwrite")
+  end
+
+  test "create_file rejects directory paths", %{root: root} do
+    assert {:error, _reason} = RLM.Helpers.create_file(root, "sub/", "data")
+  end
+
 end

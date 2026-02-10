@@ -44,7 +44,7 @@ mix rlm "What is 2 + 2?"
 # Single turn with piped input
 cat document.txt | mix rlm "Summarize this document"
 
-# Workspace access (model can list/read/edit files under the workspace root)
+# Workspace access (model can list/read/edit/create files under the workspace root)
 mix rlm --workspace /path/to/project
 
 # Read-only workspace access
@@ -63,4 +63,4 @@ mix rlm --verbose "What is 2 + 2?"
 - `RLM.Truncate` — Head+tail truncation to bound context size
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings
 - `Mix.Tasks.Rlm` — CLI entrypoint (single-turn and interactive sessions)
-- `RLM.Sandbox` — exposes `ls`, `read_file`, and `edit_file` for workspace access (honors `--read-only`)
+- `RLM.Sandbox` — exposes `ls`, `read_file`, `edit_file`, and `create_file` for workspace access (honors `--read-only`)

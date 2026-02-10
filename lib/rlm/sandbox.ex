@@ -32,6 +32,20 @@ defmodule RLM.Sandbox do
     end
   end
 
+  def create_file(path, content) do
+    case Process.get(:rlm_workspace_root) do
+      nil ->
+        {:error, "workspace_root not set"}
+
+      root ->
+        if Process.get(:rlm_workspace_read_only, false) do
+          {:error, "Workspace is read-only"}
+        else
+          RLM.Helpers.create_file(root, path, content)
+        end
+    end
+  end
+
 
   def list_bindings do
     Process.get(:rlm_bindings_info, [])

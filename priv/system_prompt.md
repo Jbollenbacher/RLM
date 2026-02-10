@@ -62,6 +62,7 @@ The REPL is initialized with these bindings:
 - `ls(path \\ ".")` — list files in the workspace (paths are relative to the workspace root). Returns `{:ok, entries}` or `{:error, reason}`.
 - `read_file(path, max_bytes \\ nil)` — read a file in the workspace (paths are relative to the workspace root). Returns `{:ok, contents}` or `{:error, reason}`.
 - `edit_file(path, patch)` — apply edits to a workspace file using SEARCH/REPLACE blocks (see below). Returns `{:ok, message}` or `{:error, reason}`.
+- `create_file(path, content)` — create a new file in the workspace (creates parent folders if needed). Returns `{:ok, message}` or `{:error, reason}`.
 - `latest_user_message(context)` — extract the most recent `[RLM_User]` message from the chat transcript in `context`.
 
 These are convenience functions. They do not store state.
@@ -87,6 +88,8 @@ new text
 
 SEARCH text must be an exact, unique match in the file. If it appears multiple times, include more surrounding context.
 If the workspace is read-only, `edit_file/2` returns an error.
+
+Use `create_file/2` to add new files. It will fail if the file already exists (use `edit_file/2` to modify).
 
 
 When `context` contains a chat transcript, entries are labeled like `[RLM_User]` and `[RLM_Assistant]`. **Always** respond to the latest user message, which you will see a preview of and which is available via `latest_user_message(context)`.

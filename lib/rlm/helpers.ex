@@ -87,6 +87,31 @@ defmodule RLM.Helpers do
 
   def edit_file(_root, _path, _patch), do: {:error, "path and patch must be strings"}
 
+  @spec create_file(String.t() | nil, String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, String.t()}
+  def create_file(root, path, content) when is_binary(path) and is_binary(content) do
+    cond do
+      String.trim(path) == "" ->
+        {:error, "Path must be a non-empty file path"}
+
+      String.ends_with?(path, "/") ->
+        {:error, "Path must be a file, not a directory"}
+
+      true ->
+        with {:ok, resolved} <- resolve_workspace_path(root, path),
+             false <- File.dir?(resolved),
+             :ok <- File.mkdir_p(Path.dirname(resolved)),
+             :ok <- write_new_file(resolved, content) do
+          {:ok, "Created #{path}"}
+        else
+          true -> {:error, "Path is a directory"}
+          {:error, reason} -> {:error, format_file_error(reason)}
+        end
+    end
+  end
+
+  def create_file(_root, _path, _content), do: {:error, "path and content must be strings"}
+
 
   @chat_user_marker "[RLM_User]"
   @chat_assistant_marker "[RLM_Assistant]"
@@ -194,6 +219,14 @@ defmodule RLM.Helpers do
             "Search text matched multiple occurrences. Add more surrounding context to make it unique."}}
       end
     end)
+  end
+
+  defp write_new_file(path, content) do
+    case File.write(path, content, [:exclusive]) do
+      :ok -> :ok
+      {:error, :eexist} -> {:error, "File already exists"}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   defp normalize_patch(patch) do
