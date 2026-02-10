@@ -25,6 +25,8 @@ defmodule RLM.Eval do
           Process.put(:rlm_workspace_root, workspace_root)
         end
 
+        Process.put(:rlm_workspace_read_only, Keyword.get(bindings, :workspace_read_only, false))
+
         try do
           {{result, new_bindings}, diagnostics} =
             Code.with_diagnostics(fn ->

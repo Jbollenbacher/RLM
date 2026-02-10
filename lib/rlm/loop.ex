@@ -8,15 +8,17 @@ defmodule RLM.Loop do
     model = Keyword.get(opts, :model, config.model_large)
     depth = Keyword.get(opts, :depth, 0)
     workspace_root = Keyword.get(opts, :workspace_root)
+    workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
 
     Logger.info("[RLM] depth=#{depth} context_size=#{byte_size(context)}")
 
-    lm_query_fn = build_lm_query(config, depth, workspace_root)
+    lm_query_fn = build_lm_query(config, depth, workspace_root, workspace_read_only)
 
     initial_bindings = [
       context: context,
       lm_query: lm_query_fn,
       workspace_root: workspace_root,
+      workspace_read_only: workspace_read_only,
       final_answer: nil,
       last_stdout: "",
       last_stderr: "",
@@ -26,7 +28,11 @@ defmodule RLM.Loop do
     system_msg = %{role: :system, content: RLM.Prompt.system_prompt()}
     user_msg = %{
       role: :user,
-      content: RLM.Prompt.initial_user_message(context, workspace_available: workspace_root != nil)
+      content:
+        RLM.Prompt.initial_user_message(context,
+          workspace_available: workspace_root != nil,
+          workspace_read_only: workspace_read_only
+        )
     }
     initial_history = [system_msg, user_msg]
 
@@ -155,6 +161,17 @@ defmodule RLM.Loop do
     """
   end
 
+  defp no_code_nudge do
+    "[No code block found. Please respond with an ```elixir code block.]"
+  end
+
+  defp last_user_nudge?(history) do
+    case List.last(history) do
+      %{role: :user, content: content} -> content == no_code_nudge()
+      _ -> false
+    end
+  end
+
   defp serialize_history(messages) do
     Enum.map_join(messages, "\n\n---\n\n", fn msg ->
       role = Map.get(msg, :role, "unknown")
@@ -247,22 +264,28 @@ defmodule RLM.Loop do
         end
 
       {:error, :no_code_block} ->
-        # LLM didn't produce code — nudge it
+        # LLM didn't produce code — nudge it once, then accept plain text to avoid stalling
         Logger.warning("[RLM] depth=#{depth} iteration=#{iteration} no code block found")
 
-        history =
-          history ++
-            [
-              %{role: :assistant, content: response},
-              %{role: :user, content: "[No code block found. Please respond with an ```elixir code block.]"}
-            ]
+        if last_user_nudge?(history) do
+          Logger.warning("[RLM] depth=#{depth} accepting plain-text response after repeated no-code")
+          history = history ++ [%{role: :assistant, content: response}]
+          {{:ok, normalize_answer(response)}, history, bindings}
+        else
+          history =
+            history ++
+              [
+                %{role: :assistant, content: response},
+                %{role: :user, content: no_code_nudge()}
+              ]
 
-        iterate(history, bindings, model, config, depth, iteration + 1, [])
+          iterate(history, bindings, model, config, depth, iteration + 1, [])
+        end
     end
   end
 
   @doc false
-  def build_lm_query(config, depth, workspace_root) do
+  def build_lm_query(config, depth, workspace_root, workspace_read_only \\ false) do
     fn text, opts ->
       model_size = Keyword.fetch!(opts, :model_size)
       model = if model_size == :large, do: config.model_large, else: config.model_small
@@ -276,7 +299,8 @@ defmodule RLM.Loop do
           model: model,
           config: config,
           depth: depth + 1,
-          workspace_root: workspace_root
+          workspace_root: workspace_root,
+          workspace_read_only: workspace_read_only
         )
       end
     end

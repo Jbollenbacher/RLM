@@ -19,10 +19,15 @@ defmodule RLM.Prompt do
            RLM.Truncate.truncate(context, head: 250, tail: 250)}
       end
     workspace_available = Keyword.get(opts, :workspace_available, false)
+    workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
 
     workspace_note =
       if workspace_available do
-        "Workspace access: enabled. Use ls() and read_file() with relative paths.\n"
+        if workspace_read_only do
+          "Workspace access: read-only. Use ls() and read_file() with relative paths.\n"
+        else
+          "Workspace access: enabled. Use ls(), read_file(), and edit_file() with relative paths (no workspace/ prefix).\n"
+        end
       else
         ""
       end

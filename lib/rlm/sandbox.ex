@@ -18,6 +18,21 @@ defmodule RLM.Sandbox do
     end
   end
 
+  def edit_file(path, patch) do
+    case Process.get(:rlm_workspace_root) do
+      nil ->
+        {:error, "workspace_root not set"}
+
+      root ->
+        if Process.get(:rlm_workspace_read_only, false) do
+          {:error, "Workspace is read-only"}
+        else
+          RLM.Helpers.edit_file(root, path, patch)
+        end
+    end
+  end
+
+
   def list_bindings do
     Process.get(:rlm_bindings_info, [])
   end

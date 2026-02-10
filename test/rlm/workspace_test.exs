@@ -32,4 +32,30 @@ defmodule RLM.WorkspaceTest do
   test "ls rejects non-directories", %{root: root} do
     assert {:error, _reason} = RLM.Helpers.ls(root, "a.txt")
   end
+
+  test "edit_file applies search/replace blocks", %{root: root} do
+    patch = """
+    <<<<<<< SEARCH
+    hello
+    =======
+    hello world
+    >>>>>>> REPLACE
+    """
+
+    assert {:ok, _message} = RLM.Helpers.edit_file(root, "a.txt", patch)
+    assert {:ok, "hello world"} = RLM.Helpers.read_file(root, "a.txt")
+  end
+
+  test "edit_file errors when search text not found", %{root: root} do
+    patch = """
+    <<<<<<< SEARCH
+    missing
+    =======
+    replaced
+    >>>>>>> REPLACE
+    """
+
+    assert {:error, _reason} = RLM.Helpers.edit_file(root, "a.txt", patch)
+  end
+
 end

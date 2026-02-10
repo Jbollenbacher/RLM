@@ -17,13 +17,15 @@ defmodule RLM.Session do
     model = Keyword.get(opts, :model, config.model_large)
     depth = Keyword.get(opts, :depth, 0)
     workspace_root = Keyword.get(opts, :workspace_root)
+    workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
 
-    lm_query_fn = RLM.Loop.build_lm_query(config, depth, workspace_root)
+    lm_query_fn = RLM.Loop.build_lm_query(config, depth, workspace_root, workspace_read_only)
 
     bindings = [
       context: context,
       lm_query: lm_query_fn,
       workspace_root: workspace_root,
+      workspace_read_only: workspace_read_only,
       final_answer: nil,
       last_stdout: "",
       last_stderr: "",
@@ -70,7 +72,12 @@ defmodule RLM.Session do
   defp build_prompt_message(history, context, bindings) do
     if length(history) == 1 do
       workspace_available = Keyword.get(bindings, :workspace_root) != nil
-      RLM.Prompt.initial_user_message(context, workspace_available: workspace_available)
+      workspace_read_only = Keyword.get(bindings, :workspace_read_only, false)
+
+      RLM.Prompt.initial_user_message(context,
+        workspace_available: workspace_available,
+        workspace_read_only: workspace_read_only
+      )
     else
       RLM.Prompt.initial_user_message(context)
     end

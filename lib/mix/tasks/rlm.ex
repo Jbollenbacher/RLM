@@ -9,7 +9,13 @@ defmodule Mix.Tasks.Rlm do
 
     {opts, positional, _} =
       OptionParser.parse(args,
-        strict: [workspace: :string, interactive: :boolean, verbose: :boolean, debug: :boolean],
+        strict: [
+          workspace: :string,
+          read_only: :boolean,
+          interactive: :boolean,
+          verbose: :boolean,
+          debug: :boolean
+        ],
         aliases: [w: :workspace, i: :interactive]
       )
 
@@ -18,6 +24,8 @@ defmodule Mix.Tasks.Rlm do
 
     workspace_root = Keyword.get(opts, :workspace)
     validate_workspace_root(workspace_root)
+    workspace_read_only = Keyword.get(opts, :read_only, false)
+    validate_read_only(workspace_root, workspace_read_only)
 
     context = read_stdin()
 
@@ -28,7 +36,11 @@ defmodule Mix.Tasks.Rlm do
     cond do
       interactive? ->
         IO.puts(:stderr, "RLM session ready (#{byte_size(context)} bytes). Type your query.")
-        session = RLM.Session.start(context, workspace_root: workspace_root)
+        session =
+          RLM.Session.start(context,
+            workspace_root: workspace_root,
+            workspace_read_only: workspace_read_only
+          )
 
         session =
           if query != "" do
@@ -42,11 +54,15 @@ defmodule Mix.Tasks.Rlm do
         interactive_loop(session)
 
       query == "" ->
-        Mix.raise("Usage: mix rlm [--workspace PATH] [-i] \"query\"")
+        Mix.raise("Usage: mix rlm [--workspace PATH] [--read-only] [-i] \"query\"")
 
       true ->
         IO.puts(:stderr, "Running RLM on #{byte_size(context)} bytes...")
-        session = RLM.Session.start(context, workspace_root: workspace_root)
+        session =
+          RLM.Session.start(context,
+            workspace_root: workspace_root,
+            workspace_read_only: workspace_read_only
+          )
         {result, _session} = RLM.Session.ask(session, query)
         print_result(result, interactive: false)
     end
@@ -83,6 +99,11 @@ defmodule Mix.Tasks.Rlm do
       Mix.raise("Workspace path is not a directory: #{path}")
     end
   end
+
+  defp validate_read_only(nil, true),
+    do: Mix.raise("--read-only requires --workspace PATH")
+
+  defp validate_read_only(_workspace_root, _read_only), do: :ok
 
   defp configure_logger(opts) do
     cond do

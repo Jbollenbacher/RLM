@@ -61,6 +61,7 @@ The REPL is initialized with these bindings:
 - `list_bindings()` — return the names, types, and sizes of all current bindings.
 - `ls(path \\ ".")` — list files in the workspace (paths are relative to the workspace root). Returns `{:ok, entries}` or `{:error, reason}`.
 - `read_file(path, max_bytes \\ nil)` — read a file in the workspace (paths are relative to the workspace root). Returns `{:ok, contents}` or `{:error, reason}`.
+- `edit_file(path, patch)` — apply edits to a workspace file using SEARCH/REPLACE blocks (see below). Returns `{:ok, message}` or `{:error, reason}`.
 - `latest_user_message(context)` — extract the most recent `[RLM_User]` message from the chat transcript in `context`.
 
 These are convenience functions. They do not store state.
@@ -69,9 +70,24 @@ These are convenience functions. They do not store state.
 
 If a workspace folder is provided, you may explore it using `ls/1` and `read_file/2`.
 Paths are always **relative to the workspace root**. Do not assume or use absolute paths.
+Do not prefix paths with `workspace/` — use paths like `notes/todo.md`.
 If no workspace is available, these functions return an error tuple.
 
 If asked about a file, **do not assume it is in `context`**. Use `ls()` to discover filenames and `read_file()` to load contents.
+
+When workspace access is write-enabled, use `edit_file/2` to modify existing files. It expects one or more SEARCH/REPLACE blocks:
+
+```
+<<<<<<< SEARCH
+exact text to replace
+=======
+new text
+>>>>>>> REPLACE
+```
+
+SEARCH text must be an exact, unique match in the file. If it appears multiple times, include more surrounding context.
+If the workspace is read-only, `edit_file/2` returns an error.
+
 
 When `context` contains a chat transcript, entries are labeled like `[RLM_User]` and `[RLM_Assistant]`. **Always** respond to the latest user message, which you will see a preview of and which is available via `latest_user_message(context)`.
 User instructions live inside `context`, not in the system prompt.

@@ -26,7 +26,7 @@ defmodule RLM.Helpers do
   @spec list_bindings(keyword()) :: [{atom(), String.t(), non_neg_integer()}]
   def list_bindings(bindings) when is_list(bindings) do
     bindings
-    |> Enum.reject(fn {name, _value} -> name in [:workspace_root] end)
+    |> Enum.reject(fn {name, _value} -> name in [:workspace_root, :workspace_read_only] end)
     |> Enum.map(fn {name, value} ->
       {name, type_of(value), term_size(value)}
     end)
@@ -69,6 +69,24 @@ defmodule RLM.Helpers do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @spec edit_file(String.t() | nil, String.t(), String.t()) ::
+          {:ok, String.t()} | {:error, String.t()}
+  def edit_file(root, path, patch) when is_binary(path) and is_binary(patch) do
+    with {:ok, resolved} <- resolve_workspace_path(root, path),
+         true <- File.regular?(resolved) || {:error, "Not a file"},
+         {:ok, edits} <- parse_edit_blocks(patch),
+         {:ok, content} <- File.read(resolved),
+         {:ok, updated} <- apply_edit_blocks(content, edits),
+         :ok <- File.write(resolved, updated) do
+      {:ok, "Applied #{length(edits)} edit(s) to #{path}"}
+    else
+      {:error, reason} -> {:error, format_file_error(reason)}
+    end
+  end
+
+  def edit_file(_root, _path, _patch), do: {:error, "path and patch must be strings"}
+
 
   @chat_user_marker "[RLM_User]"
   @chat_assistant_marker "[RLM_Assistant]"
@@ -130,6 +148,94 @@ defmodule RLM.Helpers do
         {:error, "Failed to open file: #{inspect(reason)}"}
     end
   end
+
+  defp parse_edit_blocks(patch) do
+    patch = normalize_patch(patch)
+
+    regex =
+      ~r/<<<<<<< SEARCH\r?\n(.*?)\r?\n=======\r?\n(.*?)\r?\n>>>>>>> REPLACE/s
+
+    blocks = Regex.scan(regex, patch)
+
+    cond do
+      blocks == [] ->
+        {:error,
+         "No edit blocks found. Use <<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE blocks."}
+
+      String.trim(Regex.replace(regex, patch, "")) != "" ->
+        {:error, "Patch contains text outside of edit blocks"}
+
+      true ->
+        edits =
+          Enum.map(blocks, fn [_all, search, replace] ->
+            {search, replace}
+          end)
+
+        case Enum.find(edits, fn {search, _replace} -> search == "" end) do
+          nil -> {:ok, edits}
+          _ -> {:error, "Search blocks cannot be empty"}
+        end
+    end
+  end
+
+  defp apply_edit_blocks(content, edits) do
+    Enum.reduce_while(edits, {:ok, content}, fn {search, replace}, {:ok, acc} ->
+      case :binary.matches(acc, search) do
+        [] ->
+          {:halt, {:error, "Search text not found in file"}}
+
+        [_match] ->
+          updated = String.replace(acc, search, replace, global: false)
+          {:cont, {:ok, updated}}
+
+        _multiple ->
+          {:halt,
+           {:error,
+            "Search text matched multiple occurrences. Add more surrounding context to make it unique."}}
+      end
+    end)
+  end
+
+  defp normalize_patch(patch) do
+    trimmed = String.trim(patch, "\n")
+    lines = String.split(trimmed, "\n", trim: false)
+
+    min_indent =
+      lines
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.map(&leading_indent/1)
+      |> case do
+        [] -> 0
+        indents -> Enum.min(indents)
+      end
+
+    if min_indent > 0 do
+      lines
+      |> Enum.map(fn line ->
+        if line == "" do
+          ""
+        else
+          String.slice(line, min_indent..-1//1)
+        end
+      end)
+      |> Enum.join("\n")
+    else
+      trimmed
+    end
+  end
+
+  defp leading_indent(line) do
+    line
+    |> String.to_charlist()
+    |> Enum.take_while(&(&1 == ?\s or &1 == ?\t))
+    |> length()
+  end
+
+  defp format_file_error(reason) when is_atom(reason),
+    do: "File operation failed: #{inspect(reason)}"
+
+  defp format_file_error(reason) when is_binary(reason), do: reason
+  defp format_file_error(reason), do: "File operation failed: #{inspect(reason)}"
 
   defp type_of(value) when is_binary(value), do: "string"
   defp type_of(value) when is_integer(value), do: "integer"
