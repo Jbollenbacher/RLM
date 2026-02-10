@@ -53,30 +53,24 @@ The REPL is initialized with these bindings:
 
 **Automatic history bindings** are populated at the start of each turn with results from your previous execution: `last_stdout` (full untruncated stdout), `last_stderr` (full untruncated stderr), `last_result` (return value). To preserve data across multiple turns, assign it to a named variable (e.g., `analysis_v1 = last_stdout`).
 
-### Helper Functions
+### Helper Functions (Pure)
 
-- `chunks(string, size)` — lazily split a string into chunks of `size` characters. Returns a Stream.
-- `grep(pattern, string)` — return `{line_number, line}` tuples matching a substring or regex.
-- `preview(term, n \\ 500)` — return a truncated, human-readable representation of `term`.
-- `list_bindings()` — return the names, types, and sizes of all current bindings.
-- `ls(path \\ ".")` — list files in the workspace (paths are relative to the workspace root). Returns `{:ok, entries}` or `{:error, reason}`.
-- `read_file(path, max_bytes \\ nil)` — read a file in the workspace (paths are relative to the workspace root). Returns `{:ok, contents}` or `{:error, reason}`.
-- `edit_file(path, patch)` — apply edits to a workspace file using SEARCH/REPLACE blocks (see below). Returns `{:ok, message}` or `{:error, reason}`.
-- `create_file(path, content)` — create a new file in the workspace (creates parent folders if needed). Returns `{:ok, message}` or `{:error, reason}`.
-- `latest_user_message(context)` — extract the most recent `[RLM_User]` message from the chat transcript in `context`.
+- `chunks(string, size)` — split a string into a lazy Stream of fixed-size chunks.
+- `grep(pattern, string)` — return `{line_number, line}` for substring/regex matches.
+- `preview(term, n \\ 500)` — truncated, human-readable representation.
+- `list_bindings()` — `{name, type, byte_size}` for current bindings.
+- `latest_user_message(context)` — extract the most recent `[RLM_User]` message.
 
-These are convenience functions. They do not store state.
+Helpers are stateless convenience functions.
 
-### Workspace Access
+### Workspace Access (Optional)
 
-If a workspace folder is provided, you may explore it using `ls/1` and `read_file/2`.
-Paths are always **relative to the workspace root**. Do not assume or use absolute paths.
-Do not prefix paths with `workspace/` — use paths like `notes/todo.md`.
-If no workspace is available, these functions return an error tuple.
+If a workspace is provided, you may read it with `ls/1` and `read_file/2`.
+Paths are **relative to the workspace root** (no absolute paths, no `workspace/` prefix).
+If you need a file, discover it with `ls()` and load it with `read_file()`.
 
-If asked about a file, **do not assume it is in `context`**. Use `ls()` to discover filenames and `read_file()` to load contents.
-
-When workspace access is write-enabled, use `edit_file/2` to modify existing files. It expects one or more SEARCH/REPLACE blocks:
+If write access is enabled, modify files with `edit_file/2` using SEARCH/REPLACE blocks.
+Create new files with `create_file/2` (fails if the file already exists).
 
 ```
 <<<<<<< SEARCH
@@ -88,8 +82,6 @@ new text
 
 SEARCH text must be an exact, unique match in the file. If it appears multiple times, include more surrounding context.
 If the workspace is read-only, `edit_file/2` returns an error.
-
-Use `create_file/2` to add new files. It will fail if the file already exists (use `edit_file/2` to modify).
 
 
 When `context` contains a chat transcript, entries are labeled like `[RLM_User]` and `[RLM_Assistant]`. **Always** respond to the latest user message, which you will see a preview of and which is available via `latest_user_message(context)`.

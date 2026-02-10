@@ -58,9 +58,8 @@ mix rlm --verbose "What is 2 + 2?"
 
 - `RLM.Loop` — Main orchestration loop (REPL driver)
 - `RLM.Eval` — Sandboxed code evaluation with IO capture
-- `RLM.Sandbox` — Helper functions available to eval'd code (`chunks`, `grep`, `preview`, `lm_query`)
+- `RLM.Sandbox` — Helper functions available to eval'd code (`chunks`, `grep`, `preview`, `lm_query`, and optional workspace access helpers)
 - `RLM.LLM` — OpenAI-compatible API client (via Req)
 - `RLM.Truncate` — Head+tail truncation to bound context size
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings
 - `Mix.Tasks.Rlm` — CLI entrypoint (single-turn and interactive sessions)
-- `RLM.Sandbox` — exposes `ls`, `read_file`, `edit_file`, and `create_file` for workspace access (honors `--read-only`)
