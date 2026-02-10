@@ -44,7 +44,7 @@ mix rlm "What is 2 + 2?"
 # Single turn with piped input
 cat document.txt | mix rlm "Summarize this document"
 
-# Workspace access (model can list/read files under the workspace root; paths are relative)
+# Workspace access (model can list/read files under the workspace root; can't edit yet)
 mix rlm --workspace /path/to/project
 
 # Show logs
