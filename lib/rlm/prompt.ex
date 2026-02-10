@@ -4,25 +4,26 @@ defmodule RLM.Prompt do
   @spec system_prompt() :: String.t()
   def system_prompt, do: @system_prompt_text
 
-  @spec initial_user_message(String.t(), String.t()) :: String.t()
-  def initial_user_message(context, query) do
+  @spec initial_user_message(String.t(), keyword()) :: String.t()
+  def initial_user_message(context, opts \\ []) do
     size = byte_size(context)
     line_count = context |> String.split("\n") |> length()
     preview = String.slice(context, 0, 500)
+    workspace_available = Keyword.get(opts, :workspace_available, false)
+
+    workspace_note =
+      if workspace_available do
+        "Workspace access: enabled. Use ls() and read_file() with relative paths.\n"
+      else
+        ""
+      end
 
     """
     Input: #{size} bytes, #{line_count} lines.
     Preview (first 500 chars):
     #{preview}
 
-    Task: #{query}\
-    """
-  end
-
-  @spec followup_user_message(String.t()) :: String.t()
-  def followup_user_message(query) do
-    """
-    Task: #{query}\
+    #{workspace_note}\
     """
   end
 

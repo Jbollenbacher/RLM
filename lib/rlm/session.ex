@@ -16,12 +16,14 @@ defmodule RLM.Session do
     config = Keyword.get_lazy(opts, :config, fn -> RLM.Config.load() end)
     model = Keyword.get(opts, :model, config.model_large)
     depth = Keyword.get(opts, :depth, 0)
+    workspace_root = Keyword.get(opts, :workspace_root)
 
-    lm_query_fn = RLM.Loop.build_lm_query(config, depth)
+    lm_query_fn = RLM.Loop.build_lm_query(config, depth, workspace_root)
 
     bindings = [
       context: context,
       lm_query: lm_query_fn,
+      workspace_root: workspace_root,
       final_answer: nil,
       last_stdout: "",
       last_stderr: "",
@@ -40,25 +42,48 @@ defmodule RLM.Session do
   end
 
   @spec ask(t(), String.t()) :: {{:ok, String.t()} | {:error, String.t()}, t()}
-  def ask(%__MODULE__{} = session, query) do
+  def ask(%__MODULE__{} = session, message) do
     history = session.history
     bindings = session.bindings
 
-    user_message =
-      if length(history) == 1 do
-        context = Keyword.fetch!(bindings, :context)
-        RLM.Prompt.initial_user_message(context, query)
-      else
-        RLM.Prompt.followup_user_message(query)
-      end
+    updated_context = append_turn(Keyword.fetch!(bindings, :context), "User", message)
+    bindings = Keyword.put(bindings, :context, updated_context)
 
+    user_message = build_prompt_message(history, updated_context, bindings)
     history = history ++ [%{role: :user, content: user_message}]
     bindings = Keyword.put(bindings, :final_answer, nil)
 
     {result, new_history, new_bindings} =
       RLM.Loop.run_turn(history, bindings, session.model, session.config, session.depth)
 
+    updated_context = append_assistant_to_context(updated_context, result)
+
+    new_bindings =
+      new_bindings
+      |> Keyword.put(:context, updated_context)
+      |> Keyword.put(:final_answer, nil)
+
     new_session = %__MODULE__{session | history: new_history, bindings: new_bindings}
     {result, new_session}
   end
+
+  defp build_prompt_message(history, context, bindings) do
+    if length(history) == 1 do
+      workspace_available = Keyword.get(bindings, :workspace_root) != nil
+      RLM.Prompt.initial_user_message(context, workspace_available: workspace_available)
+    else
+      RLM.Prompt.initial_user_message(context)
+    end
+  end
+
+  defp append_turn(context, role, message) do
+    prefix = if context == "", do: "", else: "\n\n"
+    context <> prefix <> "[#{role}]\n" <> message
+  end
+
+  defp append_assistant_to_context(context, {:ok, answer}),
+    do: append_turn(context, "Assistant", answer)
+
+  defp append_assistant_to_context(context, {:error, reason}),
+    do: append_turn(context, "Assistant", "Error: #{reason}")
 end

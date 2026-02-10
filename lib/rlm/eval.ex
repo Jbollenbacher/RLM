@@ -21,6 +21,10 @@ defmodule RLM.Eval do
           Process.put(:rlm_lm_query_fn, lm_query_fn)
         end
 
+        if workspace_root = Keyword.get(bindings, :workspace_root) do
+          Process.put(:rlm_workspace_root, workspace_root)
+        end
+
         try do
           {{result, new_bindings}, diagnostics} =
             Code.with_diagnostics(fn ->

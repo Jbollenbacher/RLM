@@ -9,30 +9,26 @@ defmodule Mix.Tasks.Rlm do
 
     {opts, positional, _} =
       OptionParser.parse(args,
-        strict: [file: :string, interactive: :boolean, verbose: :boolean, debug: :boolean],
-        aliases: [i: :interactive]
+        strict: [workspace: :string, interactive: :boolean, verbose: :boolean, debug: :boolean],
+        aliases: [w: :workspace, i: :interactive]
       )
 
     configure_logger(opts)
     query = Enum.join(positional, " ")
 
-    context =
-      case Keyword.get(opts, :file) do
-        nil ->
-          read_stdin()
+    workspace_root = Keyword.get(opts, :workspace)
+    validate_workspace_root(workspace_root)
 
-        path ->
-          File.read!(path)
-      end
+    context = read_stdin()
 
     interactive? =
-      Keyword.get(opts, :interactive, false) or
-        (query == "" and Keyword.get(opts, :file) == nil and context == "")
+      Keyword.get(opts, :interactive, false) or workspace_root != nil or
+        (query == "" and context == "")
 
     cond do
       interactive? ->
         IO.puts(:stderr, "RLM session ready (#{byte_size(context)} bytes). Type your query.")
-        session = RLM.Session.start(context)
+        session = RLM.Session.start(context, workspace_root: workspace_root)
 
         session =
           if query != "" do
@@ -46,19 +42,13 @@ defmodule Mix.Tasks.Rlm do
         interactive_loop(session)
 
       query == "" ->
-        Mix.raise("Usage: mix rlm [--file FILE] [--interactive] \"query\"")
+        Mix.raise("Usage: mix rlm [--workspace PATH] [-i] \"query\"")
 
       true ->
         IO.puts(:stderr, "Running RLM on #{byte_size(context)} bytes...")
-
-        case RLM.run(context, query) do
-          {:ok, answer} ->
-            IO.puts(answer)
-
-          {:error, reason} ->
-            IO.puts(:stderr, "Error: #{reason}")
-            System.halt(1)
-        end
+        session = RLM.Session.start(context, workspace_root: workspace_root)
+        {result, _session} = RLM.Session.ask(session, query)
+        print_result(result, interactive: false)
     end
   end
 
@@ -81,6 +71,16 @@ defmodule Mix.Tasks.Rlm do
     case IO.read(:stdio, :eof) do
       :eof -> ""
       data -> data
+    end
+  end
+
+  defp validate_workspace_root(nil), do: :ok
+
+  defp validate_workspace_root(path) do
+    if File.dir?(path) do
+      :ok
+    else
+      Mix.raise("Workspace path is not a directory: #{path}")
     end
   end
 

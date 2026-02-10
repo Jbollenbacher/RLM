@@ -5,17 +5,18 @@ defmodule RLM.Loop do
   def run(opts) do
     config = Keyword.get_lazy(opts, :config, fn -> RLM.Config.load() end)
     context = Keyword.fetch!(opts, :context)
-    query = Keyword.fetch!(opts, :query)
     model = Keyword.get(opts, :model, config.model_large)
     depth = Keyword.get(opts, :depth, 0)
+    workspace_root = Keyword.get(opts, :workspace_root)
 
-    Logger.info("[RLM] depth=#{depth} context_size=#{byte_size(context)} query=#{String.slice(query, 0, 100)}")
+    Logger.info("[RLM] depth=#{depth} context_size=#{byte_size(context)}")
 
-    lm_query_fn = build_lm_query(config, depth)
+    lm_query_fn = build_lm_query(config, depth, workspace_root)
 
     initial_bindings = [
       context: context,
       lm_query: lm_query_fn,
+      workspace_root: workspace_root,
       final_answer: nil,
       last_stdout: "",
       last_stderr: "",
@@ -23,7 +24,10 @@ defmodule RLM.Loop do
     ]
 
     system_msg = %{role: :system, content: RLM.Prompt.system_prompt()}
-    user_msg = %{role: :user, content: RLM.Prompt.initial_user_message(context, query)}
+    user_msg = %{
+      role: :user,
+      content: RLM.Prompt.initial_user_message(context, workspace_available: workspace_root != nil)
+    }
     initial_history = [system_msg, user_msg]
 
     {result, _history, _bindings} =
@@ -253,7 +257,7 @@ defmodule RLM.Loop do
   end
 
   @doc false
-  def build_lm_query(config, depth) do
+  def build_lm_query(config, depth, workspace_root) do
     fn text, opts ->
       model_size = Keyword.fetch!(opts, :model_size)
       model = if model_size == :large, do: config.model_large, else: config.model_small
@@ -261,12 +265,13 @@ defmodule RLM.Loop do
       if depth >= config.max_depth do
         {:error, "Maximum recursion depth (#{config.max_depth}) exceeded"}
       else
-        RLM.Loop.run(
-          context: text,
-          query: text,
+        RLM.run(
+          "",
+          text,
           model: model,
           config: config,
-          depth: depth + 1
+          depth: depth + 1,
+          workspace_root: workspace_root
         )
       end
     end

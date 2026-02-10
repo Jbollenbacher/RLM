@@ -31,22 +31,20 @@ mix test
 ## CLI
 
 The Mix task exposes a simple CLI for single-turn and multi-turn sessions.
+User messages are appended to `context`, and the model responds to the latest user message inside that context.
 
 ```bash
-# Interactive session (default when no args)
+# Chat with RLM
 mix rlm
 
-# Single-turn query
+# Single turn query
 mix rlm "What is 2 + 2?"
 
-# Pipe input
+# Single turn with piped input
 cat document.txt | mix rlm "Summarize this document"
 
-# File input
-mix rlm --file document.txt "Summarize this document"
-
-# Interactive with initial query
-mix rlm -i "Start a session"
+# Workspace access (model can list/read files under the workspace root; paths are relative)
+mix rlm --workspace /path/to/project
 
 # Show logs
 mix rlm --verbose "What is 2 + 2?"
@@ -61,3 +59,4 @@ mix rlm --verbose "What is 2 + 2?"
 - `RLM.Truncate` — Head+tail truncation to bound context size
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings
 - `Mix.Tasks.Rlm` — CLI entrypoint (single-turn and interactive sessions)
+- `RLM.Sandbox` — exposes `ls` and `read_file` for read-only workspace access

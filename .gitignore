@@ -42,3 +42,6 @@ rlm-sysprompt*.md
 
 # Elixir language server stuff
 .elixir_ls/
+
+# Test workspace
+workspace/
