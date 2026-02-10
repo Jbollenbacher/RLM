@@ -10,7 +10,11 @@ defmodule RLM.Config do
     :context_window_tokens_small,
     :truncation_head,
     :truncation_tail,
-    :eval_timeout
+    :eval_timeout,
+    :http_pool_size,
+    :http_pool_count,
+    :http_pool_timeout,
+    :http_receive_timeout
   ]
 
   def load(overrides \\ []) do
@@ -27,7 +31,11 @@ defmodule RLM.Config do
         get(overrides, :context_window_tokens_small, 100_000),
       truncation_head: get(overrides, :truncation_head, 4000),
       truncation_tail: get(overrides, :truncation_tail, 4000),
-      eval_timeout: get(overrides, :eval_timeout, 300_000)
+      eval_timeout: get(overrides, :eval_timeout, 300_000),
+      http_pool_size: get(overrides, :http_pool_size, 100),
+      http_pool_count: get(overrides, :http_pool_count, 1),
+      http_pool_timeout: get(overrides, :http_pool_timeout, 30_000),
+      http_receive_timeout: get(overrides, :http_receive_timeout, 120_000)
     }
   end
 

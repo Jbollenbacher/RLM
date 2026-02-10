@@ -1,9 +1,10 @@
 defmodule RLM.Session do
   @moduledoc "Multi-turn session API for RLM."
 
-  defstruct [:history, :bindings, :model, :config, :depth]
+  defstruct [:id, :history, :bindings, :model, :config, :depth]
 
   @type t :: %__MODULE__{
+          id: String.t(),
           history: [map()],
           bindings: keyword(),
           model: String.t(),
@@ -13,6 +14,7 @@ defmodule RLM.Session do
 
   @spec start(String.t(), keyword()) :: t()
   def start(context, opts \\ []) do
+    id = Keyword.get(opts, :session_id, RLM.Helpers.unique_id("session"))
     config = Keyword.get_lazy(opts, :config, fn -> RLM.Config.load() end)
     model = Keyword.get(opts, :model, config.model_large)
     depth = Keyword.get(opts, :depth, 0)
@@ -35,6 +37,7 @@ defmodule RLM.Session do
     history = [%{role: :system, content: RLM.Prompt.system_prompt()}]
 
     %__MODULE__{
+      id: id,
       history: history,
       bindings: bindings,
       model: model,

@@ -112,6 +112,12 @@ defmodule RLM.Helpers do
 
   def create_file(_root, _path, _content), do: {:error, "path and content must be strings"}
 
+  @spec unique_id(String.t()) :: String.t()
+  def unique_id(prefix) when is_binary(prefix) and prefix != "" do
+    "#{prefix}_#{System.unique_integer([:positive, :monotonic])}"
+  end
+
+  def unique_id(_prefix), do: "id_#{System.unique_integer([:positive, :monotonic])}"
 
   @chat_user_marker "[RLM_User]"
   @chat_assistant_marker "[RLM_Assistant]"

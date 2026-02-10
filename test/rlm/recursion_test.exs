@@ -36,7 +36,7 @@ defmodule RLM.RecursionTest do
       result =
         RLM.run(
           context,
-          "How many characters is the input? Count using byte_size(context) and report the number.",
+          "Compute byte_size(context) and set final_answer = {:ok, Integer.to_string(byte_size(context))} in the same step.",
           config: RLM.Config.load(max_iterations: 5)
         )
 

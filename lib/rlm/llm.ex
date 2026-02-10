@@ -7,7 +7,9 @@ defmodule RLM.LLM do
       Req.new(
         base_url: config.api_base_url,
         headers: %{authorization: "Bearer #{config.api_key}"},
-        receive_timeout: 120_000,
+        receive_timeout: config.http_receive_timeout,
+        pool_timeout: config.http_pool_timeout,
+        finch: RLM.Finch,
         retry: :transient,
         max_retries: 3
       )
