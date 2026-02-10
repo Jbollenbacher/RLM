@@ -133,7 +133,7 @@ defmodule RLM.Observability.UI do
             selectedAgent: null,
             lastEventTs: 0,
             lastEventId: 0,
-            autoScroll: true
+            lastSnapshotId: 0
           };
 
           async function fetchJSON(url) {
@@ -178,9 +178,13 @@ defmodule RLM.Observability.UI do
               contextEl.textContent = "No context yet.";
               return;
             }
+            if (snapshot.id && snapshot.id === state.lastSnapshotId) {
+              return;
+            }
             const nearBottom = contextEl.scrollTop + contextEl.clientHeight + 40 >= contextEl.scrollHeight;
             contextEl.textContent = snapshot.transcript || snapshot.preview || "";
-            if (forceScroll || nearBottom || state.autoScroll) {
+            state.lastSnapshotId = snapshot.id || state.lastSnapshotId;
+            if (forceScroll || nearBottom) {
               contextEl.scrollTop = contextEl.scrollHeight;
             }
           }
@@ -190,21 +194,21 @@ defmodule RLM.Observability.UI do
             const data = await fetchJSON(`/api/events?since=${state.lastEventTs}&since_id=${state.lastEventId}&agent_id=${state.selectedAgent}`);
             const events = data.events || [];
             const eventsEl = document.getElementById("events");
+            const nearBottom = eventsEl.scrollTop + eventsEl.clientHeight + 40 >= eventsEl.scrollHeight;
             events.forEach(evt => {
               const line = document.createElement("div");
               line.className = "event";
               const detail = evt.payload && evt.payload.duration_ms ? ` (${evt.payload.duration_ms}ms)` : "";
               line.textContent = `[${new Date(evt.ts).toLocaleTimeString()}] ${evt.type}${detail}`;
               eventsEl.appendChild(line);
-              if (evt.ts > state.lastEventTs) {
-                state.lastEventTs = evt.ts;
-                state.lastEventId = evt.id || 0;
-              } else if (evt.ts === state.lastEventTs) {
-                state.lastEventId = Math.max(state.lastEventId, evt.id || 0);
-              }
             });
             if (events.length > 0) {
-              eventsEl.scrollTop = eventsEl.scrollHeight;
+              const last = events[events.length - 1];
+              state.lastEventTs = last.ts || state.lastEventTs;
+              state.lastEventId = last.id || state.lastEventId;
+              if (nearBottom) {
+                eventsEl.scrollTop = eventsEl.scrollHeight;
+              }
             }
           }
 
