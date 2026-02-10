@@ -14,7 +14,8 @@ defmodule RLM.Config do
     :http_pool_size,
     :http_pool_count,
     :http_pool_timeout,
-    :http_receive_timeout
+    :http_receive_timeout,
+    :obs_max_context_window_chars
   ]
 
   def load(overrides \\ []) do
@@ -35,7 +36,8 @@ defmodule RLM.Config do
       http_pool_size: get(overrides, :http_pool_size, 100),
       http_pool_count: get(overrides, :http_pool_count, 1),
       http_pool_timeout: get(overrides, :http_pool_timeout, 30_000),
-      http_receive_timeout: get(overrides, :http_receive_timeout, 120_000)
+      http_receive_timeout: get(overrides, :http_receive_timeout, 120_000),
+      obs_max_context_window_chars: get(overrides, :obs_max_context_window_chars, 200_000)
     }
   end
 

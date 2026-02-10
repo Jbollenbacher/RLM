@@ -52,7 +52,14 @@ mix rlm --workspace /path/to/project --read-only
 
 # Show logs
 mix rlm --verbose "What is 2 + 2?"
+
+# Observability UI (embedded)
+mix rlm --observe
+# Custom port
+mix rlm --observe --observe-port 4005
 ```
+
+When observability is enabled, the UI is served at `http://127.0.0.1:<port>`.
 
 ## Architecture
 

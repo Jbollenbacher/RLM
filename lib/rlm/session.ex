@@ -15,13 +15,14 @@ defmodule RLM.Session do
   @spec start(String.t(), keyword()) :: t()
   def start(context, opts \\ []) do
     id = Keyword.get(opts, :session_id, RLM.Helpers.unique_id("session"))
+    parent_agent_id = Keyword.get(opts, :parent_agent_id)
     config = Keyword.get_lazy(opts, :config, fn -> RLM.Config.load() end)
     model = Keyword.get(opts, :model, config.model_large)
     depth = Keyword.get(opts, :depth, 0)
     workspace_root = Keyword.get(opts, :workspace_root)
     workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
 
-    lm_query_fn = RLM.Loop.build_lm_query(config, depth, workspace_root, workspace_read_only)
+    lm_query_fn = RLM.Loop.build_lm_query(config, depth, workspace_root, workspace_read_only, id)
 
     bindings = [
       context: context,
@@ -35,6 +36,13 @@ defmodule RLM.Session do
     ]
 
     history = [%{role: :system, content: RLM.Prompt.system_prompt()}]
+
+    RLM.Observability.emit([:rlm, :agent, :start], %{system_time: System.system_time(:millisecond)}, %{
+      agent_id: id,
+      parent_id: parent_agent_id,
+      model: model,
+      depth: depth
+    })
 
     %__MODULE__{
       id: id,
@@ -59,7 +67,14 @@ defmodule RLM.Session do
     bindings = Keyword.put(bindings, :final_answer, nil)
 
     {result, new_history, new_bindings} =
-      RLM.Loop.run_turn(history, bindings, session.model, session.config, session.depth)
+      RLM.Loop.run_turn(
+        history,
+        bindings,
+        session.model,
+        session.config,
+        session.depth,
+        session.id
+      )
 
     updated_context = append_assistant_to_context(updated_context, result)
 

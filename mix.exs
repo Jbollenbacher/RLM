@@ -23,7 +23,9 @@ defmodule Rlm.MixProject do
   defp deps do
     [
       {:req, "~> 0.5"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:bandit, "~> 1.5"},
+      {:plug, "~> 1.15"}
     ]
   end
 end
