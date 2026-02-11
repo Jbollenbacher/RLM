@@ -15,7 +15,8 @@ defmodule RLM.Config do
     :http_pool_count,
     :http_pool_timeout,
     :http_receive_timeout,
-    :obs_max_context_window_chars
+    :obs_max_context_window_chars,
+    :max_concurrent_agents
   ]
 
   def load(overrides \\ []) do
@@ -24,8 +25,8 @@ defmodule RLM.Config do
       api_key: get(overrides, :api_key, nil),
       model_large: get(overrides, :model_large, "qwen/qwen3-coder-next"),
       model_small: get(overrides, :model_small, "qwen/qwen3-coder-next"),
-      max_iterations: get(overrides, :max_iterations, 25),
-      max_depth: get(overrides, :max_depth, 5),
+      max_iterations: get(overrides, :max_iterations, 500),
+      max_depth: get(overrides, :max_depth, 15),
       context_window_tokens_large:
         get(overrides, :context_window_tokens_large, 100_000),
       context_window_tokens_small:
@@ -37,7 +38,8 @@ defmodule RLM.Config do
       http_pool_count: get(overrides, :http_pool_count, 1),
       http_pool_timeout: get(overrides, :http_pool_timeout, 30_000),
       http_receive_timeout: get(overrides, :http_receive_timeout, 120_000),
-      obs_max_context_window_chars: get(overrides, :obs_max_context_window_chars, 200_000)
+      obs_max_context_window_chars: get(overrides, :obs_max_context_window_chars, 200_000),
+      max_concurrent_agents: get(overrides, :max_concurrent_agents, 6)
     }
   end
 

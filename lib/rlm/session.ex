@@ -56,35 +56,43 @@ defmodule RLM.Session do
 
   @spec ask(t(), String.t()) :: {{:ok, String.t()} | {:error, String.t()}, t()}
   def ask(%__MODULE__{} = session, message) do
-    history = session.history
-    bindings = session.bindings
+    case RLM.AgentLimiter.with_slot(session.config.max_concurrent_agents, fn ->
+           history = session.history
+           bindings = session.bindings
 
-    updated_context = append_turn(Keyword.fetch!(bindings, :context), "Principal", message)
-    bindings = Keyword.put(bindings, :context, updated_context)
+           updated_context = append_turn(Keyword.fetch!(bindings, :context), "Principal", message)
+           bindings = Keyword.put(bindings, :context, updated_context)
 
-    user_message = build_prompt_message(history, updated_context, bindings)
-    history = history ++ [%{role: :user, content: user_message}]
-    bindings = Keyword.put(bindings, :final_answer, nil)
+           user_message = build_prompt_message(history, updated_context, bindings)
+           history = history ++ [%{role: :user, content: user_message}]
+           bindings = Keyword.put(bindings, :final_answer, nil)
 
-    {result, new_history, new_bindings} =
-      RLM.Loop.run_turn(
-        history,
-        bindings,
-        session.model,
-        session.config,
-        session.depth,
-        session.id
-      )
+           {result, new_history, new_bindings} =
+             RLM.Loop.run_turn(
+               history,
+               bindings,
+               session.model,
+               session.config,
+               session.depth,
+               session.id
+             )
 
-    updated_context = append_agent_to_context(updated_context, result)
+           updated_context = append_agent_to_context(updated_context, result)
 
-    new_bindings =
-      new_bindings
-      |> Keyword.put(:context, updated_context)
-      |> Keyword.put(:final_answer, nil)
+           new_bindings =
+             new_bindings
+             |> Keyword.put(:context, updated_context)
+             |> Keyword.put(:final_answer, nil)
 
-    new_session = %__MODULE__{session | history: new_history, bindings: new_bindings}
-    {result, new_session}
+           new_session = %__MODULE__{session | history: new_history, bindings: new_bindings}
+           {result, new_session}
+         end) do
+      {:error, reason} ->
+        {{:error, reason}, session}
+
+      other ->
+        other
+    end
   end
 
   defp build_prompt_message(history, context, bindings) do

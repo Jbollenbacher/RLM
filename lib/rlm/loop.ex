@@ -13,37 +13,48 @@ defmodule RLM.Loop do
 
     Logger.info("[RLM] depth=#{depth} context_size=#{byte_size(context)}")
 
-    lm_query_fn = build_lm_query(config, depth, workspace_root, workspace_read_only, agent_id)
+    RLM.AgentLimiter.with_slot(config.max_concurrent_agents, fn ->
+      lm_query_fn = build_lm_query(config, depth, workspace_root, workspace_read_only, agent_id)
 
-    initial_bindings = [
-      context: context,
-      lm_query: lm_query_fn,
-      workspace_root: workspace_root,
-      workspace_read_only: workspace_read_only,
-      final_answer: nil,
-      last_stdout: "",
-      last_stderr: "",
-      last_result: nil
-    ]
+      initial_bindings = [
+        context: context,
+        lm_query: lm_query_fn,
+        workspace_root: workspace_root,
+        workspace_read_only: workspace_read_only,
+        final_answer: nil,
+        last_stdout: "",
+        last_stderr: "",
+        last_result: nil
+      ]
 
-    system_msg = %{role: :system, content: RLM.Prompt.system_prompt()}
-    user_msg = %{
-      role: :user,
-      content:
-        RLM.Prompt.initial_user_message(context,
-          workspace_available: workspace_root != nil,
-          workspace_read_only: workspace_read_only
-        )
-    }
-    initial_history = [system_msg, user_msg]
+      system_msg = %{
+        role: :system,
+        content:
+          RLM.Prompt.system_prompt(
+            workspace_available: workspace_root != nil,
+            workspace_read_only: workspace_read_only
+          )
+      }
 
-    {result, _history, _bindings} =
-      iterate(initial_history, initial_bindings, model, config, depth, 0, [], agent_id)
+      user_msg = %{
+        role: :user,
+        content:
+          RLM.Prompt.initial_user_message(context,
+            workspace_available: workspace_root != nil,
+            workspace_read_only: workspace_read_only
+          )
+      }
 
-    case result do
-      {:ok, answer} -> {:ok, answer}
-      {:error, reason} -> {:error, reason}
-    end
+      initial_history = [system_msg, user_msg]
+
+      {result, _history, _bindings} =
+        iterate(initial_history, initial_bindings, model, config, depth, 0, [], agent_id)
+
+      case result do
+        {:ok, answer} -> {:ok, answer}
+        {:error, reason} -> {:error, reason}
+      end
+    end)
   end
 
   @doc false

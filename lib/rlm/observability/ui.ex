@@ -84,14 +84,44 @@ defmodule RLM.Observability.UI do
             font-size: 13px;
           }
           .agent {
-            padding: 8px 10px;
+            padding: 6px 8px;
             border-radius: 8px;
             cursor: pointer;
             border: 1px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 6px;
           }
           .agent.active {
             border-color: var(--accent);
             background: rgba(107, 220, 255, 0.08);
+          }
+          .agent-toggle {
+            width: 16px;
+            height: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: 0;
+            border-radius: 4px;
+            background: transparent;
+            color: var(--muted);
+            cursor: pointer;
+            font-size: 12px;
+            line-height: 1;
+          }
+          .agent-toggle:hover {
+            background: rgba(107, 220, 255, 0.12);
+            color: var(--text);
+          }
+          .agent-toggle.placeholder {
+            cursor: default;
+            color: rgba(154, 163, 178, 0.4);
+          }
+          .agent-label {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
           }
           #context {
             flex: 1;
@@ -157,7 +187,8 @@ defmodule RLM.Observability.UI do
             lastEventTs: 0,
             lastEventId: 0,
             lastSnapshotId: 0,
-            showSystem: false
+            showSystem: false,
+            expandedAgents: new Set()
           };
 
           async function fetchJSON(url) {
@@ -165,31 +196,101 @@ defmodule RLM.Observability.UI do
             return res.json();
           }
 
+          function buildAgentTree(agents) {
+            const nodesById = new Map();
+            const roots = [];
+
+            agents.forEach(agent => {
+              nodesById.set(agent.id, { ...agent, children: [] });
+            });
+
+            agents.forEach(agent => {
+              const node = nodesById.get(agent.id);
+              if (agent.parent_id && nodesById.has(agent.parent_id)) {
+                nodesById.get(agent.parent_id).children.push(node);
+              } else {
+                roots.push(node);
+              }
+            });
+
+            return roots;
+          }
+
+          function ensureExpandedForNewAgents(nextAgents) {
+            const existing = new Set(state.agents.map(agent => agent.id));
+
+            nextAgents.forEach(agent => {
+              if (!existing.has(agent.id)) {
+                if (agent.parent_id) {
+                  state.expandedAgents.add(agent.parent_id);
+                } else {
+                  state.expandedAgents.add(agent.id);
+                }
+              }
+            });
+          }
+
+          function renderAgentNode(node, depth) {
+            const container = document.getElementById("agents");
+            const div = document.createElement("div");
+            div.className = "agent" + (state.selectedAgent === node.id ? " active" : "");
+            div.style.paddingLeft = `${8 + depth * 14}px`;
+
+            const hasChildren = node.children && node.children.length > 0;
+            const isExpanded = state.expandedAgents.has(node.id);
+            const toggle = document.createElement("button");
+            toggle.className = "agent-toggle" + (hasChildren ? "" : " placeholder");
+            toggle.textContent = hasChildren ? (isExpanded ? "▾" : "▸") : "•";
+            toggle.disabled = !hasChildren;
+            toggle.onclick = event => {
+              event.stopPropagation();
+              if (!hasChildren) return;
+              if (isExpanded) {
+                state.expandedAgents.delete(node.id);
+              } else {
+                state.expandedAgents.add(node.id);
+              }
+              renderAgents();
+            };
+
+            const label = document.createElement("span");
+            label.className = "agent-label";
+            label.textContent = `${node.id} (${node.status || "unknown"})`;
+
+            div.appendChild(toggle);
+            div.appendChild(label);
+            div.onclick = () => {
+              state.selectedAgent = node.id;
+              state.lastEventTs = 0;
+              state.lastEventId = 0;
+              state.lastSnapshotId = 0;
+              document.getElementById("events").innerHTML = "";
+              loadContext(true);
+              renderAgents();
+            };
+
+            container.appendChild(div);
+
+            if (hasChildren && isExpanded) {
+              node.children.forEach(child => renderAgentNode(child, depth + 1));
+            }
+          }
+
           function renderAgents() {
             const container = document.getElementById("agents");
             container.innerHTML = "";
-            state.agents.forEach(agent => {
-              const div = document.createElement("div");
-              div.className = "agent" + (state.selectedAgent === agent.id ? " active" : "");
-              div.textContent = `${agent.id} (${agent.status || "unknown"})`;
-              div.onclick = () => {
-                state.selectedAgent = agent.id;
-                state.lastEventTs = 0;
-                state.lastEventId = 0;
-                state.lastSnapshotId = 0;
-                document.getElementById("events").innerHTML = "";
-                loadContext(true);
-                renderAgents();
-              };
-              container.appendChild(div);
-            });
+            const roots = buildAgentTree(state.agents);
+            roots.forEach(root => renderAgentNode(root, 0));
           }
 
           async function loadAgents() {
             const data = await fetchJSON("/api/agents");
-            state.agents = data.agents || [];
+            const nextAgents = data.agents || [];
+            ensureExpandedForNewAgents(nextAgents);
+            state.agents = nextAgents;
             if (!state.selectedAgent && state.agents.length > 0) {
               state.selectedAgent = state.agents[state.agents.length - 1].id;
+              state.expandedAgents.add(state.selectedAgent);
             }
             renderAgents();
           }

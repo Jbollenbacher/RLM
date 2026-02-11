@@ -4,6 +4,9 @@ defmodule RLM.Prompt do
   @spec system_prompt() :: String.t()
   def system_prompt, do: @system_prompt_text
 
+  @spec system_prompt(keyword()) :: String.t()
+  def system_prompt(_opts), do: @system_prompt_text
+
   @spec initial_user_message(String.t(), keyword()) :: String.t()
   def initial_user_message(context, opts \\ []) do
     preview_text =
