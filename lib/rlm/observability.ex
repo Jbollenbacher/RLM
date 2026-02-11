@@ -26,7 +26,7 @@ defmodule RLM.Observability do
     :ok
   end
 
-  @spec span(atom(), map(), (() -> term()), (term() -> atom())) :: term()
+  @spec span(atom(), map(), (-> term()), (term() -> atom())) :: term()
   def span(event, metadata, fun, status_fun \\ &default_status/1)
       when is_function(fun, 0) and is_function(status_fun, 1) do
     if enabled?() and Map.get(metadata, :agent_id) do
@@ -39,7 +39,12 @@ defmodule RLM.Observability do
         |> Kernel.-(start_time)
         |> System.convert_time_unit(:native, :millisecond)
 
-      emit([:rlm, event, :stop], %{duration_ms: duration_ms}, Map.put(metadata, :status, status_fun.(result)))
+      emit(
+        [:rlm, event, :stop],
+        %{duration_ms: duration_ms},
+        Map.put(metadata, :status, status_fun.(result))
+      )
+
       result
     else
       fun.()

@@ -174,7 +174,9 @@ defmodule RLM.Observability.Store do
       enforce_snapshot_limit(state, snapshot.agent_id, snapshot_id)
 
     latest_snapshots = Map.put(state.latest_snapshots, snapshot.agent_id, snapshot_id)
-    {:reply, :ok, %{state | snapshots_by_agent: snapshots_by_agent, latest_snapshots: latest_snapshots}}
+
+    {:reply, :ok,
+     %{state | snapshots_by_agent: snapshots_by_agent, latest_snapshots: latest_snapshots}}
   end
 
   def handle_call({:latest_snapshot, agent_id}, _from, state) do
@@ -196,7 +198,8 @@ defmodule RLM.Observability.Store do
   defp enforce_agent_limit(state, agent_id) do
     {agent_order, agent_ids, events_by_agent, snapshots_by_agent, latest_snapshots} =
       if MapSet.member?(state.agent_ids, agent_id) do
-        {state.agent_order, state.agent_ids, state.events_by_agent, state.snapshots_by_agent, state.latest_snapshots}
+        {state.agent_order, state.agent_ids, state.events_by_agent, state.snapshots_by_agent,
+         state.latest_snapshots}
       else
         {
           :queue.in(agent_id, state.agent_order),
@@ -260,7 +263,7 @@ defmodule RLM.Observability.Store do
       queue ->
         queue
         |> :queue.to_list()
-        |> Enum.each(& :ets.delete(@table_events, &1))
+        |> Enum.each(&:ets.delete(@table_events, &1))
 
         Map.delete(events_by_agent, agent_id)
     end
@@ -274,7 +277,7 @@ defmodule RLM.Observability.Store do
       queue ->
         queue
         |> :queue.to_list()
-        |> Enum.each(& :ets.delete(@table_snapshots, &1))
+        |> Enum.each(&:ets.delete(@table_snapshots, &1))
 
         Map.delete(snapshots_by_agent, agent_id)
     end

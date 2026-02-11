@@ -49,7 +49,6 @@ defmodule RLM.Sandbox do
     end
   end
 
-
   def list_bindings do
     Process.get(:rlm_bindings_info, [])
   end

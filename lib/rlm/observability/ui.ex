@@ -7,7 +7,7 @@ defmodule RLM.Observability.UI do
     <html>
       <head>
         <meta charset="utf-8" />
-        <title>RLM Observability</title>
+        <title>RLM Web Console</title>
         <style>
           :root {
             --bg: #0b0d12;
@@ -16,6 +16,7 @@ defmodule RLM.Observability.UI do
             --muted: #9aa3b2;
             --accent: #6bdcff;
             --border: #263044;
+            --danger: #ff8b8b;
             --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
           }
           body {
@@ -40,11 +41,30 @@ defmodule RLM.Observability.UI do
           }
           main {
             display: grid;
-            grid-template-columns: 260px 1fr 320px;
+            grid-template-columns: minmax(420px, 1.05fr) minmax(560px, 1.4fr);
+            grid-template-rows: minmax(0, 1fr);
             gap: 16px;
             padding: 16px;
             height: calc(100vh - 58px);
             box-sizing: border-box;
+          }
+          #chat-column {
+            display: flex;
+            min-height: 0;
+            height: 100%;
+          }
+          #observability-column {
+            min-height: 0;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) 300px;
+            grid-template-rows: minmax(0, 1fr);
+            gap: 16px;
+          }
+          #obs-side-stack {
+            min-height: 0;
+            display: grid;
+            grid-template-rows: 1fr 1fr;
+            gap: 16px;
           }
           .panel {
             background: var(--panel);
@@ -144,13 +164,107 @@ defmodule RLM.Observability.UI do
             padding: 6px 0;
             border-bottom: 1px dashed rgba(38, 48, 68, 0.6);
           }
+          .chat-panel {
+            min-height: 0;
+            flex: 1;
+          }
+          #chat-log {
+            flex: 1;
+            min-height: 0;
+            background: #0b0f18;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 12px;
+            overflow: auto;
+          }
+          .chat-msg {
+            margin-bottom: 10px;
+            white-space: pre-wrap;
+            line-height: 1.35;
+          }
+          .chat-msg .role {
+            font-size: 11px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--muted);
+            margin-bottom: 3px;
+          }
+          .chat-msg.user .role {
+            color: var(--accent);
+          }
+          .chat-msg.assistant .role {
+            color: #92ffb8;
+          }
+          #chat-form {
+            margin-top: 10px;
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 10px;
+          }
+          #chat-input {
+            resize: none;
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: #0b0f18;
+            color: var(--text);
+            font-family: var(--mono);
+            font-size: 12px;
+          }
+          #chat-send {
+            padding: 0 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(107, 220, 255, 0.12);
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+          }
+          #chat-send:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+          }
+          #chat-stop {
+            padding: 0 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(255, 139, 139, 0.12);
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+          }
+          #chat-stop:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+          }
+          #chat-status {
+            font-size: 12px;
+            color: var(--muted);
+          }
+          #chat-status.error {
+            color: var(--danger);
+          }
           .muted {
             color: var(--muted);
           }
           @media (max-width: 980px) {
             main {
-              grid-template-columns: 1fr;
               height: auto;
+              grid-template-columns: 1fr;
+            }
+            #chat-column {
+              min-height: 360px;
+            }
+            #observability-column {
+              grid-template-columns: 1fr;
+              grid-template-rows: auto auto;
+            }
+            #obs-side-stack {
+              grid-template-rows: auto auto;
+            }
+            #agents,
+            #events {
+              max-height: 240px;
             }
           }
         </style>
@@ -158,26 +272,44 @@ defmodule RLM.Observability.UI do
       <body>
         <header>
           <div class="dot"></div>
-          <strong>RLM Observability</strong>
+          <strong>RLM Web Console</strong>
         </header>
         <main>
-          <section class="panel">
-            <h2>Agents</h2>
-            <div id="agents"></div>
+          <section id="chat-column">
+            <section class="panel chat-panel">
+              <div class="panel-header">
+                <h2>Chat</h2>
+                <span id="chat-status">Ready</span>
+              </div>
+              <div id="chat-log" class="muted">Chat loading...</div>
+              <form id="chat-form">
+                <textarea id="chat-input" rows="3" placeholder="Ask something..."></textarea>
+                <button id="chat-send" type="submit">Send</button>
+                <button id="chat-stop" type="button" disabled>Stop</button>
+              </form>
+            </section>
           </section>
-          <section class="panel">
-            <div class="panel-header">
-              <h2>Context Window</h2>
-              <label class="toggle">
-                <input type="checkbox" id="toggle-system" />
-                Show system prompt
-              </label>
-            </div>
-            <div id="context" class="muted">Select an agent to view context.</div>
-          </section>
-          <section class="panel">
-            <h2>Event Feed</h2>
-            <div id="events"></div>
+          <section id="observability-column">
+            <section class="panel">
+              <div class="panel-header">
+                <h2>Context Window</h2>
+                <label class="toggle">
+                  <input type="checkbox" id="toggle-system" />
+                  Show system prompt
+                </label>
+              </div>
+              <div id="context" class="muted">Select an agent to view context.</div>
+            </section>
+            <section id="obs-side-stack">
+              <section class="panel">
+                <h2>Agents</h2>
+                <div id="agents"></div>
+              </section>
+              <section class="panel">
+                <h2>Event Feed</h2>
+                <div id="events"></div>
+              </section>
+            </section>
           </section>
         </main>
         <script>
@@ -188,12 +320,28 @@ defmodule RLM.Observability.UI do
             lastEventId: 0,
             lastSnapshotId: 0,
             showSystem: false,
-            expandedAgents: new Set()
+            expandedAgents: new Set(),
+            chatSessionId: null,
+            chatLastMessageId: 0,
+            chatBusy: false
           };
 
-          async function fetchJSON(url) {
-            const res = await fetch(url);
-            return res.json();
+          async function fetchJSON(url, opts = {}) {
+            const res = await fetch(url, opts);
+            const data = await res.json().catch(() => ({}));
+
+            if (!res.ok) {
+              const message = data.error || `Request failed (${res.status})`;
+              throw new Error(message);
+            }
+
+            return data;
+          }
+
+          function setChatStatus(message, isError = false) {
+            const el = document.getElementById("chat-status");
+            el.textContent = message;
+            el.className = isError ? "error" : "";
           }
 
           function buildAgentTree(agents) {
@@ -216,6 +364,22 @@ defmodule RLM.Observability.UI do
             return roots;
           }
 
+          function shortIdHash(value) {
+            const text = String(value || "");
+            let hash = 2166136261;
+
+            for (let i = 0; i < text.length; i += 1) {
+              hash ^= text.charCodeAt(i);
+              hash = Math.imul(hash, 16777619);
+            }
+
+            return (hash >>> 0).toString(36).slice(0, 6);
+          }
+
+          function displayAgentId(node, treePath) {
+            return `agent_${treePath}_${shortIdHash(node.id)}`;
+          }
+
           function ensureExpandedForNewAgents(nextAgents) {
             const existing = new Set(state.agents.map(agent => agent.id));
 
@@ -230,7 +394,7 @@ defmodule RLM.Observability.UI do
             });
           }
 
-          function renderAgentNode(node, depth) {
+          function renderAgentNode(node, depth, treePath) {
             const container = document.getElementById("agents");
             const div = document.createElement("div");
             div.className = "agent" + (state.selectedAgent === node.id ? " active" : "");
@@ -255,7 +419,7 @@ defmodule RLM.Observability.UI do
 
             const label = document.createElement("span");
             label.className = "agent-label";
-            label.textContent = `${node.id} (${node.status || "unknown"})`;
+            label.textContent = `${displayAgentId(node, treePath)} (${node.status || "unknown"})`;
 
             div.appendChild(toggle);
             div.appendChild(label);
@@ -272,7 +436,9 @@ defmodule RLM.Observability.UI do
             container.appendChild(div);
 
             if (hasChildren && isExpanded) {
-              node.children.forEach(child => renderAgentNode(child, depth + 1));
+              node.children.forEach((child, index) => {
+                renderAgentNode(child, depth + 1, `${treePath}${index + 1}`);
+              });
             }
           }
 
@@ -280,7 +446,7 @@ defmodule RLM.Observability.UI do
             const container = document.getElementById("agents");
             container.innerHTML = "";
             const roots = buildAgentTree(state.agents);
-            roots.forEach(root => renderAgentNode(root, 0));
+            roots.forEach((root, index) => renderAgentNode(root, 0, String(index + 1)));
           }
 
           async function loadAgents() {
@@ -288,10 +454,15 @@ defmodule RLM.Observability.UI do
             const nextAgents = data.agents || [];
             ensureExpandedForNewAgents(nextAgents);
             state.agents = nextAgents;
-            if (!state.selectedAgent && state.agents.length > 0) {
+
+            if (!state.selectedAgent && state.chatSessionId) {
+              state.selectedAgent = state.chatSessionId;
+              state.expandedAgents.add(state.chatSessionId);
+            } else if (!state.selectedAgent && state.agents.length > 0) {
               state.selectedAgent = state.agents[state.agents.length - 1].id;
               state.expandedAgents.add(state.selectedAgent);
             }
+
             renderAgents();
           }
 
@@ -346,10 +517,95 @@ defmodule RLM.Observability.UI do
             }
           }
 
+          function renderChat(messages, forceScroll) {
+            const log = document.getElementById("chat-log");
+            const nearBottom = log.scrollTop + log.clientHeight + 40 >= log.scrollHeight;
+            log.classList.remove("muted");
+            log.innerHTML = "";
+
+            if (messages.length === 0) {
+              log.textContent = "No messages yet. Start chatting below.";
+              log.classList.add("muted");
+              return;
+            }
+
+            messages.forEach(msg => {
+              const block = document.createElement("div");
+              block.className = `chat-msg ${msg.role || "assistant"}`;
+
+              const role = document.createElement("div");
+              role.className = "role";
+              role.textContent = msg.role || "assistant";
+
+              const content = document.createElement("div");
+              content.textContent = msg.content || "";
+
+              block.appendChild(role);
+              block.appendChild(content);
+              log.appendChild(block);
+            });
+
+            if (forceScroll || nearBottom) {
+              log.scrollTop = log.scrollHeight;
+            }
+          }
+
+          async function loadChat(forceScroll) {
+            try {
+              const data = await fetchJSON("/api/chat");
+              state.chatSessionId = data.session_id || state.chatSessionId;
+
+              if (!state.selectedAgent && state.chatSessionId) {
+                state.selectedAgent = state.chatSessionId;
+                state.expandedAgents.add(state.chatSessionId);
+              }
+
+              const messages = data.messages || [];
+              const last = messages[messages.length - 1];
+              const lastId = last ? last.id : 0;
+
+              if (forceScroll || lastId !== state.chatLastMessageId) {
+                renderChat(messages, forceScroll);
+              }
+
+              state.chatLastMessageId = lastId;
+              setChatBusy(Boolean(data.busy));
+            } catch (error) {
+              setChatStatus(error.message, true);
+            }
+          }
+
+          function setChatBusy(busy) {
+            state.chatBusy = busy;
+            const input = document.getElementById("chat-input");
+            const sendButton = document.getElementById("chat-send");
+            const stopButton = document.getElementById("chat-stop");
+            input.disabled = busy;
+            sendButton.disabled = busy;
+            stopButton.disabled = !busy;
+            setChatStatus(busy ? "Running..." : "Ready");
+          }
+
+          async function sendChatMessage(message) {
+            await fetchJSON("/api/chat", {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ message })
+            });
+          }
+
+          async function stopChatMessage() {
+            await fetchJSON("/api/chat/stop", {
+              method: "POST",
+              headers: { "content-type": "application/json" }
+            });
+          }
+
           async function loop() {
             await loadAgents();
             await loadContext(false);
             await pollEvents();
+            await loadChat(false);
             setTimeout(loop, 1000);
           }
 
@@ -362,10 +618,67 @@ defmodule RLM.Observability.UI do
             });
           }
 
-          loadAgents().then(() => {
-            loadContext(true);
-            loop();
-          });
+          const chatForm = document.getElementById("chat-form");
+          if (chatForm) {
+            chatForm.addEventListener("submit", async event => {
+              event.preventDefault();
+
+              if (state.chatBusy) return;
+
+              const input = document.getElementById("chat-input");
+              const message = input.value.trim();
+              if (!message) return;
+
+              setChatBusy(true);
+
+              try {
+                await sendChatMessage(message);
+                input.value = "";
+                await loadChat(true);
+                await loadAgents();
+                await loadContext(true);
+                await pollEvents();
+              } catch (error) {
+                setChatStatus(error.message, true);
+                setChatBusy(false);
+              }
+            });
+          }
+
+          const chatInput = document.getElementById("chat-input");
+          if (chatInput && chatForm) {
+            chatInput.addEventListener("keydown", event => {
+              if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+                event.preventDefault();
+                chatForm.requestSubmit();
+              }
+            });
+          }
+
+          const stopButton = document.getElementById("chat-stop");
+          if (stopButton) {
+            stopButton.addEventListener("click", async () => {
+              if (!state.chatBusy) return;
+
+              try {
+                await stopChatMessage();
+                await loadChat(true);
+                await loadContext(true);
+                await pollEvents();
+              } catch (error) {
+                setChatStatus(error.message, true);
+              }
+            });
+          }
+
+          Promise.all([loadChat(true), loadAgents()])
+            .then(() => {
+              loadContext(true);
+              loop();
+            })
+            .catch(error => {
+              setChatStatus(error.message, true);
+            });
         </script>
       </body>
     </html>

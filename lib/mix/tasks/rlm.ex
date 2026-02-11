@@ -16,13 +16,14 @@ defmodule Mix.Tasks.Rlm do
           verbose: :boolean,
           debug: :boolean,
           observe: :boolean,
-          observe_port: :integer
+          observe_port: :integer,
+          web: :boolean,
+          web_port: :integer
         ],
         aliases: [w: :workspace, i: :interactive]
       )
 
     configure_logger(opts)
-    maybe_start_observability(opts)
     query = Enum.join(positional, " ")
 
     workspace_root = Keyword.get(opts, :workspace)
@@ -31,43 +32,53 @@ defmodule Mix.Tasks.Rlm do
     validate_read_only(workspace_root, workspace_read_only)
 
     context = read_stdin()
+    web? = Keyword.get(opts, :web, false)
 
-    interactive? =
-      Keyword.get(opts, :interactive, false) or workspace_root != nil or
-        (query == "" and context == "")
+    if web? do
+      run_web_mode(opts, query, context, workspace_root, workspace_read_only)
+    else
+      maybe_start_observability(opts)
 
-    cond do
-      interactive? ->
-        IO.puts(:stderr, "RLM session ready (#{byte_size(context)} bytes). Type your query.")
-        session =
-          RLM.Session.start(context,
-            workspace_root: workspace_root,
-            workspace_read_only: workspace_read_only
-          )
+      interactive? =
+        Keyword.get(opts, :interactive, false) or workspace_root != nil or
+          (query == "" and context == "")
 
-        session =
-          if query != "" do
-            {result, session} = RLM.Session.ask(session, query)
-            print_result(result, interactive: true)
-            session
-          else
-            session
-          end
+      cond do
+        interactive? ->
+          IO.puts(:stderr, "RLM session ready (#{byte_size(context)} bytes). Type your query.")
 
-        interactive_loop(session)
+          session =
+            RLM.Session.start(context,
+              workspace_root: workspace_root,
+              workspace_read_only: workspace_read_only
+            )
 
-      query == "" ->
-        Mix.raise("Usage: mix rlm [--workspace PATH] [--read-only] [-i] \"query\"")
+          session =
+            if query != "" do
+              {result, session} = RLM.Session.ask(session, query)
+              print_result(result, interactive: true)
+              session
+            else
+              session
+            end
 
-      true ->
-        IO.puts(:stderr, "Running RLM on #{byte_size(context)} bytes...")
-        session =
-          RLM.Session.start(context,
-            workspace_root: workspace_root,
-            workspace_read_only: workspace_read_only
-          )
-        {result, _session} = RLM.Session.ask(session, query)
-        print_result(result, interactive: false)
+          interactive_loop(session)
+
+        query == "" ->
+          Mix.raise("Usage: mix rlm [--workspace PATH] [--read-only] [-i] [--web] \"query\"")
+
+        true ->
+          IO.puts(:stderr, "Running RLM on #{byte_size(context)} bytes...")
+
+          session =
+            RLM.Session.start(context,
+              workspace_root: workspace_root,
+              workspace_read_only: workspace_read_only
+            )
+
+          {result, _session} = RLM.Session.ask(session, query)
+          print_result(result, interactive: false)
+      end
     end
   end
 
@@ -130,6 +141,45 @@ defmodule Mix.Tasks.Rlm do
 
       :ok = RLM.Observability.start(port: port)
       IO.puts(:stderr, "Observability UI: http://127.0.0.1:#{port}")
+    end
+  end
+
+  defp run_web_mode(opts, query, context, workspace_root, workspace_read_only) do
+    if query != "" do
+      IO.puts(:stderr, "Ignoring positional query in --web mode. Use the web chat panel.")
+    end
+
+    port =
+      Keyword.get(opts, :web_port) ||
+        Keyword.get(opts, :observe_port) ||
+        env_port("RLM_WEB_PORT") ||
+        env_port("RLM_OBSERVE_PORT") ||
+        4005
+
+    :ok =
+      RLM.Observability.start(
+        port: port,
+        chat_opts: [
+          context: context,
+          workspace_root: workspace_root,
+          workspace_read_only: workspace_read_only
+        ]
+      )
+
+    IO.puts(:stderr, "Web UI: http://127.0.0.1:#{port}")
+    wait_forever()
+  end
+
+  defp env_port(name) do
+    case System.get_env(name) do
+      nil -> nil
+      value -> String.to_integer(value)
+    end
+  end
+
+  defp wait_forever do
+    receive do
+      _ -> wait_forever()
     end
   end
 

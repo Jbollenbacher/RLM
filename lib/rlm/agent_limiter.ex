@@ -13,12 +13,13 @@ defmodule RLM.AgentLimiter do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   end
 
-  @spec with_slot(integer() | nil | :infinity, (() -> any())) :: any()
+  @spec with_slot(integer() | nil | :infinity, (-> any())) :: any()
   def with_slot(max, fun) when is_function(fun, 0) do
     if unlimited?(max) do
       fun.()
     else
       validate_max!(max)
+
       case Process.whereis(__MODULE__) do
         nil ->
           fun.()

@@ -26,8 +26,7 @@ defmodule RLM.LLM do
       }
 
       case Req.post(req, url: "/chat/completions", json: body) do
-        {:ok,
-         %{status: 200, body: %{"choices" => [%{"message" => %{"content" => content}} | _]}}}
+        {:ok, %{status: 200, body: %{"choices" => [%{"message" => %{"content" => content}} | _]}}}
         when is_binary(content) and content != "" ->
           {:ok, content}
 

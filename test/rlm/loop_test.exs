@@ -21,7 +21,9 @@ defmodule RLM.LoopTest do
       context = Enum.join(lines, "\n")
       assert byte_size(context) > 50_000
 
-      result = RLM.run(context, "Find the secret token embedded in the input. It starts with SECRET_.")
+      result =
+        RLM.run(context, "Find the secret token embedded in the input. It starts with SECRET_.")
+
       assert {:ok, answer} = result
       assert answer =~ "SECRET_42"
     end

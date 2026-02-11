@@ -14,6 +14,7 @@ defmodule RLM.Prompt do
         {:ok, message} -> RLM.Truncate.truncate(message, head: 250, tail: 250)
         {:error, _reason} -> RLM.Truncate.truncate(context, head: 250, tail: 250)
       end
+
     workspace_available = Keyword.get(opts, :workspace_available, false)
     workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
 
@@ -28,9 +29,21 @@ defmodule RLM.Prompt do
         ""
       end
 
-    how_to_respond_note = "[SYSTEM]\nYou can only communuicate with the Principal by setting `final_answer` in an ```elixer codeblock. Proceed according to the system propmt."
+    how_to_respond_note =
+      "[SYSTEM]\nYou can only communuicate with the Principal by setting `final_answer` in an ```elixer codeblock. Proceed according to the system propmt."
 
     "#{workspace_note}[PRINCIPAL]\n#{preview_text}\n\n#{how_to_respond_note}"
+  end
+
+  @spec followup_user_message(String.t()) :: String.t()
+  def followup_user_message(context) do
+    preview_text =
+      case RLM.Helpers.latest_principal_message(context) do
+        {:ok, message} -> RLM.Truncate.truncate(message, head: 250, tail: 250)
+        {:error, _reason} -> RLM.Truncate.truncate(context, head: 250, tail: 250)
+      end
+
+    "[PRINCIPAL]\n#{preview_text}"
   end
 
   @spec format_eval_output(String.t(), String.t(), :ok | :error, any()) :: String.t()

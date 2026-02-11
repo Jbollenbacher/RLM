@@ -64,15 +64,18 @@ defmodule RLM.Loop do
 
   defp iterate(history, bindings, model, config, depth, iteration, prev_codes, agent_id) do
     if iteration >= config.max_iterations do
-      {{:error, "Max iterations (#{config.max_iterations}) reached without final_answer"}, history,
-       bindings}
+      {{:error, "Max iterations (#{config.max_iterations}) reached without final_answer"},
+       history, bindings}
     else
       Logger.info("[RLM] depth=#{depth} iteration=#{iteration}")
 
       {history, bindings} = maybe_compact(history, bindings, model, config, agent_id)
 
       compacted? = Keyword.get(bindings, :compacted_history, "") != ""
-      RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
+
+      RLM.Observability.snapshot_context(agent_id, iteration, history, config,
+        compacted?: compacted?
+      )
 
       iteration_started_at = RLM.Observability.iteration_start(agent_id, iteration)
 
@@ -94,8 +97,8 @@ defmodule RLM.Loop do
         {:error, reason} ->
           RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
 
-          {{:error, "LLM call failed at depth=#{depth} iteration=#{iteration}: #{reason}"}, history,
-           bindings}
+          {{:error, "LLM call failed at depth=#{depth} iteration=#{iteration}: #{reason}"},
+           history, bindings}
       end
     end
   end
@@ -261,7 +264,9 @@ defmodule RLM.Loop do
        ) do
     case RLM.LLM.extract_code(response) do
       {:ok, code} ->
-        Logger.debug("[RLM] depth=#{depth} iteration=#{iteration} code=#{String.slice(code, 0, 200)}")
+        Logger.debug(
+          "[RLM] depth=#{depth} iteration=#{iteration} code=#{String.slice(code, 0, 200)}"
+        )
 
         {prev_codes, repeated_code?} = track_code_repetition(prev_codes, code)
 
@@ -291,10 +296,12 @@ defmodule RLM.Loop do
 
         # Build feedback message
         final_answer_value = Keyword.get(new_bindings, :final_answer)
+
         suppress_result? =
           status == :ok and final_answer_value != nil and result == final_answer_value
 
         result_for_output = if suppress_result?, do: nil, else: result
+
         feedback =
           RLM.Prompt.format_eval_output(truncated_stdout, full_stderr, status, result_for_output)
 
@@ -327,26 +334,51 @@ defmodule RLM.Loop do
             RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
             normalized = normalize_answer(answer)
             compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
-            RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
+
+            RLM.Observability.snapshot_context(agent_id, iteration, history, config,
+              compacted?: compacted?
+            )
+
             {{:ok, normalized}, history, new_bindings}
 
           {:error, reason} ->
             RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
             normalized = normalize_answer(reason)
             compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
-            RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
+
+            RLM.Observability.snapshot_context(agent_id, iteration, history, config,
+              compacted?: compacted?
+            )
+
             {{:error, normalized}, history, new_bindings}
 
           nil ->
             RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
-            iterate(history, new_bindings, model, config, depth, iteration + 1, prev_codes, agent_id)
+
+            iterate(
+              history,
+              new_bindings,
+              model,
+              config,
+              depth,
+              iteration + 1,
+              prev_codes,
+              agent_id
+            )
 
           other when other != nil ->
-            Logger.info("[RLM] depth=#{depth} completed with raw answer at iteration=#{iteration}")
+            Logger.info(
+              "[RLM] depth=#{depth} completed with raw answer at iteration=#{iteration}"
+            )
+
             RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
             normalized = normalize_answer(other)
             compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
-            RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
+
+            RLM.Observability.snapshot_context(agent_id, iteration, history, config,
+              compacted?: compacted?
+            )
+
             {{:ok, normalized}, history, new_bindings}
         end
 
@@ -355,15 +387,23 @@ defmodule RLM.Loop do
         Logger.warning("[RLM] depth=#{depth} iteration=#{iteration} no code block found")
 
         if last_user_nudge?(history) do
-          Logger.warning("[RLM] depth=#{depth} accepting plain-text response after repeated no-code")
+          Logger.warning(
+            "[RLM] depth=#{depth} accepting plain-text response after repeated no-code"
+          )
+
           clean_response = strip_leading_agent_tags(response)
           history = history ++ [%{role: :assistant, content: clean_response}]
           RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
           compacted? = Keyword.get(bindings, :compacted_history, "") != ""
-          RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
+
+          RLM.Observability.snapshot_context(agent_id, iteration, history, config,
+            compacted?: compacted?
+          )
+
           {{:ok, normalize_answer(response)}, history, bindings}
         else
           clean_response = strip_leading_agent_tags(response)
+
           history =
             history ++
               [
@@ -388,7 +428,12 @@ defmodule RLM.Loop do
       else
         child_agent_id = RLM.Helpers.unique_id("agent")
 
-        RLM.Observability.child_query(parent_agent_id, child_agent_id, model_size, byte_size(text))
+        RLM.Observability.child_query(
+          parent_agent_id,
+          child_agent_id,
+          model_size,
+          byte_size(text)
+        )
 
         RLM.run(
           "",
@@ -404,5 +449,4 @@ defmodule RLM.Loop do
       end
     end
   end
-
 end

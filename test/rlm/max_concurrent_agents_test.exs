@@ -7,8 +7,8 @@ defmodule RLM.MaxConcurrentAgentsTest do
     use Plug.Router
     import Plug.Conn
 
-    plug :match
-    plug :dispatch
+    plug(:match)
+    plug(:dispatch)
 
     post "/chat/completions" do
       response = """
@@ -40,9 +40,7 @@ defmodule RLM.MaxConcurrentAgentsTest do
 
     port = free_port()
 
-    start_supervised!(
-      {Bandit, plug: FakeLLMPlug, scheme: :http, port: port, ip: {127, 0, 0, 1}}
-    )
+    start_supervised!({Bandit, plug: FakeLLMPlug, scheme: :http, port: port, ip: {127, 0, 0, 1}})
 
     config =
       RLM.Config.load(

@@ -4,7 +4,11 @@ defmodule RLM.ObservabilityStoreTest do
   alias RLM.Observability.Store
 
   setup do
-    {:ok, _pid} = start_supervised({Store, [max_events_per_agent: 3, max_context_snapshots_per_agent: 2, max_agents: 2]})
+    {:ok, _pid} =
+      start_supervised(
+        {Store, [max_events_per_agent: 3, max_context_snapshots_per_agent: 2, max_agents: 2]}
+      )
+
     :ok
   end
 
@@ -20,7 +24,10 @@ defmodule RLM.ObservabilityStoreTest do
     assert Enum.map(events, & &1.type) == [:a, :b, :c]
 
     last = List.last(events)
-    events2 = Store.list_events(agent_id: "agent_a", since_ts: last.ts, since_id: last.id, limit: 10)
+
+    events2 =
+      Store.list_events(agent_id: "agent_a", since_ts: last.ts, since_id: last.id, limit: 10)
+
     assert events2 == []
   end
 
@@ -40,6 +47,7 @@ defmodule RLM.ObservabilityStoreTest do
     Store.put_agent(%{id: "agent_c"})
 
     long = String.duplicate("a", 50)
+
     config =
       RLM.Config.load(
         truncation_head: 5,
@@ -47,7 +55,12 @@ defmodule RLM.ObservabilityStoreTest do
         obs_max_context_window_chars: 20
       )
 
-    RLM.Observability.Tracker.snapshot_context("agent_c", 0, [%{role: :user, content: long}], config)
+    RLM.Observability.Tracker.snapshot_context(
+      "agent_c",
+      0,
+      [%{role: :user, content: long}],
+      config
+    )
 
     snapshot = Store.latest_snapshot("agent_c")
     assert snapshot.truncated_bytes > 0
@@ -58,6 +71,7 @@ defmodule RLM.ObservabilityStoreTest do
   test "agent eviction removes events and snapshots" do
     Store.put_agent(%{id: "agent_1"})
     Store.add_event(%{agent_id: "agent_1", type: :a, payload: %{}})
+
     Store.add_snapshot(%{
       agent_id: "agent_1",
       iteration: 0,

@@ -57,9 +57,15 @@ mix rlm --verbose "What is 2 + 2?"
 mix rlm --observe
 # Custom port
 mix rlm --observe --observe-port 4005
+
+# Web chat UI (single-session MVP)
+mix rlm --web
+# Custom port
+mix rlm --web --web-port 4005
 ```
 
 When observability is enabled, the UI is served at `http://127.0.0.1:<port>` and the CLI prints the URL on startup.
+`--web` serves the same UI and adds a bottom chat panel so you can chat in-browser instead of the CLI prompt.
 
 ## Architecture
 

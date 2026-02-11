@@ -75,5 +75,4 @@ defmodule RLM.WorkspaceTest do
   test "create_file rejects directory paths", %{root: root} do
     assert {:error, _reason} = RLM.Helpers.create_file(root, "sub/", "data")
   end
-
 end

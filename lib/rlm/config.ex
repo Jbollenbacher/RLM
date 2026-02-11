@@ -27,10 +27,8 @@ defmodule RLM.Config do
       model_small: get(overrides, :model_small),
       max_iterations: get(overrides, :max_iterations),
       max_depth: get(overrides, :max_depth),
-      context_window_tokens_large:
-        get(overrides, :context_window_tokens_large),
-      context_window_tokens_small:
-        get(overrides, :context_window_tokens_small),
+      context_window_tokens_large: get(overrides, :context_window_tokens_large),
+      context_window_tokens_small: get(overrides, :context_window_tokens_small),
       truncation_head: get(overrides, :truncation_head),
       truncation_tail: get(overrides, :truncation_tail),
       eval_timeout: get(overrides, :eval_timeout),
