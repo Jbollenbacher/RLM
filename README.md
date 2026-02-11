@@ -31,7 +31,7 @@ mix test
 ## CLI
 
 The Mix task exposes a simple CLI for single-turn and multi-turn sessions.
-User messages are appended to `context`, and the model responds to the latest user message inside that context.
+Principal messages are appended to `context`, and the model responds to the latest principal message inside that context.
 The input preview includes both the head and tail of `context` so the latest turn is visible.
 
 ```bash

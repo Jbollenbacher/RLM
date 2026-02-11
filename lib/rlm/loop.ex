@@ -177,6 +177,7 @@ defmodule RLM.Loop do
 
   defp repetition_nudge do
     """
+    [REPL][AGENT]
     [Repeated Code Detected]
 
     Your last three code blocks were identical. You appear to be stuck.
@@ -188,7 +189,7 @@ defmodule RLM.Loop do
   end
 
   defp no_code_nudge do
-    "[No code block found. Please respond with an ```elixir code block.]"
+    "[REPL][AGENT]\n[No code block found. Please respond with an ```elixir code block.]"
   end
 
   defp last_user_nudge?(history) do
@@ -208,6 +209,7 @@ defmodule RLM.Loop do
 
   defp compaction_addendum(preview) do
     """
+    [REPL][AGENT]
     [Context Window Compacted]
 
     Your previous conversation history has been compacted to free context space.
@@ -245,8 +247,8 @@ defmodule RLM.Loop do
 
         {prev_codes, repeated_code?} = track_code_repetition(prev_codes, code)
 
-        # Add assistant message to history
-        history = history ++ [%{role: :assistant, content: response}]
+        # Add agent message to history
+        history = history ++ [%{role: :assistant, content: "[AGENT]\n" <> response}]
 
         # Eval
         {status, full_stdout, result, new_bindings} =
@@ -314,14 +316,14 @@ defmodule RLM.Loop do
 
         if last_user_nudge?(history) do
           Logger.warning("[RLM] depth=#{depth} accepting plain-text response after repeated no-code")
-          history = history ++ [%{role: :assistant, content: response}]
+          history = history ++ [%{role: :assistant, content: "[AGENT]\n" <> response}]
           RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
           {{:ok, normalize_answer(response)}, history, bindings}
         else
           history =
             history ++
               [
-                %{role: :assistant, content: response},
+                %{role: :assistant, content: "[AGENT]\n" <> response},
                 %{role: :user, content: no_code_nudge()}
               ]
 

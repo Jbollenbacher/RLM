@@ -139,7 +139,7 @@ defmodule RLM.Observability.Store do
 
   def handle_call({:add_event, event}, _from, state) do
     event_id = System.unique_integer([:positive, :monotonic])
-    ts = Map.get(event, :ts, System.system_time(:millisecond))
+    ts = Map.get(event, :ts) || System.system_time(:millisecond)
     event = Map.put(event, :id, event_id) |> Map.put(:ts, ts)
     key = {ts, event_id}
     :ets.insert(@table_events, {key, event})

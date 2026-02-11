@@ -59,7 +59,7 @@ defmodule RLM.Session do
     history = session.history
     bindings = session.bindings
 
-    updated_context = append_turn(Keyword.fetch!(bindings, :context), "User", message)
+    updated_context = append_turn(Keyword.fetch!(bindings, :context), "Principal", message)
     bindings = Keyword.put(bindings, :context, updated_context)
 
     user_message = build_prompt_message(history, updated_context, bindings)
@@ -76,7 +76,7 @@ defmodule RLM.Session do
         session.id
       )
 
-    updated_context = append_assistant_to_context(updated_context, result)
+    updated_context = append_agent_to_context(updated_context, result)
 
     new_bindings =
       new_bindings
@@ -105,19 +105,19 @@ defmodule RLM.Session do
     prefix = if context == "", do: "", else: "\n\n"
     marker =
       case role do
-        "User" -> RLM.Helpers.chat_marker(:user)
-        "Assistant" -> RLM.Helpers.chat_marker(:assistant)
+        "Principal" -> RLM.Helpers.chat_marker(:principal)
+        "Agent" -> RLM.Helpers.chat_marker(:agent)
         other -> "[RLM_#{other}]"
       end
 
     context <> prefix <> marker <> "\n" <> message
   end
 
-  defp append_assistant_to_context(context, {:ok, answer}),
-    do: append_turn(context, "Assistant", format_message(answer))
+  defp append_agent_to_context(context, {:ok, answer}),
+    do: append_turn(context, "Agent", format_message(answer))
 
-  defp append_assistant_to_context(context, {:error, reason}),
-    do: append_turn(context, "Assistant", "Error: #{format_message(reason)}")
+  defp append_agent_to_context(context, {:error, reason}),
+    do: append_turn(context, "Agent", "Error: #{format_message(reason)}")
 
   defp format_message(message) when is_binary(message), do: message
 

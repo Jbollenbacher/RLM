@@ -51,9 +51,37 @@ defmodule RLM.Observability.Tracker do
 
   defp serialize_history(history) do
     Enum.map_join(history, "\n\n---\n\n", fn %{role: role, content: content} ->
-      role = role |> to_string() |> String.upcase()
-      "[#{role}]\n#{to_string(content)}"
+      {label, cleaned} = label_message(role, to_string(content))
+      "[#{label}]\n#{cleaned}"
     end)
+  end
+
+  defp label_message(:user, content) do
+    cond do
+      String.starts_with?(content, "[REPL][AGENT]") ->
+        {"REPL/AGENT", strip_tag(content, "[REPL][AGENT]")}
+
+      String.starts_with?(content, "[PRINCIPAL]") ->
+        {"PRINCIPAL", strip_tag(content, "[PRINCIPAL]")}
+
+      true ->
+        {"PRINCIPAL", content}
+    end
+  end
+
+  defp label_message(:assistant, content) do
+    if String.starts_with?(content, "[AGENT]") do
+      {"AGENT", strip_tag(content, "[AGENT]")}
+    else
+      {"AGENT", content}
+    end
+  end
+  defp label_message(role, content), do: {role |> to_string() |> String.upcase(), content}
+
+  defp strip_tag(content, tag) do
+    content
+    |> String.trim_leading(tag)
+    |> String.trim_leading()
   end
 
   defp maybe_truncate(transcript, max_chars) when is_integer(max_chars) and max_chars > 0 do

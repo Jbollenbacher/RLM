@@ -152,6 +152,7 @@ defmodule RLM.Observability.UI do
                 state.selectedAgent = agent.id;
                 state.lastEventTs = 0;
                 state.lastEventId = 0;
+                state.lastSnapshotId = 0;
                 document.getElementById("events").innerHTML = "";
                 loadContext(true);
                 renderAgents();
@@ -191,7 +192,12 @@ defmodule RLM.Observability.UI do
 
           async function pollEvents() {
             if (!state.selectedAgent) return;
-            const data = await fetchJSON(`/api/events?since=${state.lastEventTs}&since_id=${state.lastEventId}&agent_id=${state.selectedAgent}`);
+            const params = new URLSearchParams({
+              since: String(state.lastEventTs),
+              since_id: String(state.lastEventId),
+              agent_id: state.selectedAgent
+            });
+            const data = await fetchJSON(`/api/events?${params.toString()}`);
             const events = data.events || [];
             const eventsEl = document.getElementById("events");
             const nearBottom = eventsEl.scrollTop + eventsEl.clientHeight + 40 >= eventsEl.scrollHeight;

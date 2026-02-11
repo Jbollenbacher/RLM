@@ -9,9 +9,9 @@ defmodule RLM.Prompt do
     size = byte_size(context)
     line_count = context |> String.split("\n") |> length()
     {preview_label, preview_text} =
-      case RLM.Helpers.latest_user_message(context) do
+      case RLM.Helpers.latest_principal_message(context) do
         {:ok, message} ->
-          {"Latest user message preview (head+tail 500 chars):",
+          {"Latest principal message preview (head+tail 500 chars):",
            RLM.Truncate.truncate(message, head: 250, tail: 250)}
 
         {:error, _reason} ->
@@ -33,6 +33,7 @@ defmodule RLM.Prompt do
       end
 
     """
+    [PRINCIPAL]
     Input: #{size} bytes, #{line_count} lines.
     #{preview_label}
     #{preview_text}
@@ -71,8 +72,8 @@ defmodule RLM.Prompt do
       end
 
     case parts do
-      [] -> "[No output]"
-      _ -> Enum.join(parts, "\n\n")
+      [] -> "[REPL][AGENT]\n[No output]"
+      _ -> "[REPL][AGENT]\n" <> Enum.join(parts, "\n\n")
     end
   end
 end

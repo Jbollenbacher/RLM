@@ -16,6 +16,6 @@ defmodule RLM.SessionServerTest do
     # Verify state via get_state
     assert {:ok, %Session{} = session} = RLM.get_session_state(session_id)
     assert is_binary(session.id)
-    assert length(session.history) >= 5 # System + User + Assistant + User + Assistant
+    assert length(session.history) >= 5 # System + Principal + Agent + Principal + Agent
   end
 end
