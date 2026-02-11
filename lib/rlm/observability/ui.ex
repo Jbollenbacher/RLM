@@ -41,9 +41,9 @@ defmodule RLM.Observability.UI do
           }
           main {
             display: grid;
-            grid-template-columns: minmax(420px, 1.05fr) minmax(560px, 1.4fr);
+            grid-template-columns: minmax(320px, var(--chat-col, 48%)) 10px minmax(420px, 1fr);
             grid-template-rows: minmax(0, 1fr);
-            gap: 16px;
+            gap: 0;
             padding: 16px;
             height: calc(100vh - 58px);
             box-sizing: border-box;
@@ -52,19 +52,85 @@ defmodule RLM.Observability.UI do
             display: flex;
             min-height: 0;
             height: 100%;
+            padding-right: 8px;
+          }
+          #main-splitter {
+            width: 10px;
+            cursor: col-resize;
+            touch-action: none;
+            position: relative;
+          }
+          #main-splitter::before {
+            content: "";
+            position: absolute;
+            top: 6px;
+            bottom: 6px;
+            left: 3px;
+            width: 4px;
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(107, 220, 255, 0.15), rgba(107, 220, 255, 0.35));
+            border: 1px solid rgba(107, 220, 255, 0.22);
+          }
+          #main-splitter:hover::before {
+            background: linear-gradient(180deg, rgba(107, 220, 255, 0.35), rgba(107, 220, 255, 0.6));
           }
           #observability-column {
             min-height: 0;
             display: grid;
-            grid-template-columns: minmax(0, 1fr) 300px;
+            grid-template-columns: minmax(0, 1fr) 10px minmax(220px, var(--obs-side-col, 300px));
             grid-template-rows: minmax(0, 1fr);
-            gap: 16px;
+            gap: 0;
+            padding-left: 8px;
+          }
+          #obs-context-panel {
+            padding-right: 8px;
+          }
+          #obs-column-splitter {
+            width: 10px;
+            cursor: col-resize;
+            touch-action: none;
+            position: relative;
+          }
+          #obs-column-splitter::before {
+            content: "";
+            position: absolute;
+            top: 6px;
+            bottom: 6px;
+            left: 3px;
+            width: 4px;
+            border-radius: 999px;
+            background: linear-gradient(180deg, rgba(107, 220, 255, 0.15), rgba(107, 220, 255, 0.35));
+            border: 1px solid rgba(107, 220, 255, 0.22);
+          }
+          #obs-column-splitter:hover::before {
+            background: linear-gradient(180deg, rgba(107, 220, 255, 0.35), rgba(107, 220, 255, 0.6));
           }
           #obs-side-stack {
             min-height: 0;
             display: grid;
-            grid-template-rows: 1fr 1fr;
-            gap: 16px;
+            grid-template-rows: minmax(140px, var(--obs-agents-row, 50%)) 10px minmax(140px, 1fr);
+            gap: 0;
+            padding-left: 8px;
+          }
+          #obs-stack-splitter {
+            height: 10px;
+            cursor: row-resize;
+            touch-action: none;
+            position: relative;
+          }
+          #obs-stack-splitter::before {
+            content: "";
+            position: absolute;
+            left: 6px;
+            right: 6px;
+            top: 3px;
+            height: 4px;
+            border-radius: 999px;
+            background: linear-gradient(90deg, rgba(107, 220, 255, 0.15), rgba(107, 220, 255, 0.35));
+            border: 1px solid rgba(107, 220, 255, 0.22);
+          }
+          #obs-stack-splitter:hover::before {
+            background: linear-gradient(90deg, rgba(107, 220, 255, 0.35), rgba(107, 220, 255, 0.6));
           }
           .panel {
             background: var(--panel);
@@ -247,20 +313,47 @@ defmodule RLM.Observability.UI do
           .muted {
             color: var(--muted);
           }
+          body.resizing-col,
+          body.resizing-col * {
+            cursor: col-resize !important;
+            user-select: none !important;
+          }
+          body.resizing-row,
+          body.resizing-row * {
+            cursor: row-resize !important;
+            user-select: none !important;
+          }
           @media (max-width: 980px) {
             main {
               height: auto;
               grid-template-columns: 1fr;
+              grid-template-rows: auto auto;
+              gap: 16px;
             }
             #chat-column {
               min-height: 360px;
+              padding-right: 0;
+            }
+            #main-splitter {
+              display: none;
             }
             #observability-column {
               grid-template-columns: 1fr;
               grid-template-rows: auto auto;
+              padding-left: 0;
+            }
+            #obs-context-panel {
+              padding-right: 0;
+            }
+            #obs-column-splitter {
+              display: none;
             }
             #obs-side-stack {
               grid-template-rows: auto auto;
+              padding-left: 0;
+            }
+            #obs-stack-splitter {
+              display: none;
             }
             #agents,
             #events {
@@ -289,8 +382,9 @@ defmodule RLM.Observability.UI do
               </form>
             </section>
           </section>
+          <div id="main-splitter" role="separator" aria-orientation="vertical" aria-label="Resize panels"></div>
           <section id="observability-column">
-            <section class="panel">
+            <section id="obs-context-panel" class="panel">
               <div class="panel-header">
                 <h2>Context Window</h2>
                 <label class="toggle">
@@ -300,11 +394,13 @@ defmodule RLM.Observability.UI do
               </div>
               <div id="context" class="muted">Select an agent to view context.</div>
             </section>
+            <div id="obs-column-splitter" role="separator" aria-orientation="vertical" aria-label="Resize observability panels"></div>
             <section id="obs-side-stack">
               <section class="panel">
                 <h2>Agents</h2>
                 <div id="agents"></div>
               </section>
+              <div id="obs-stack-splitter" role="separator" aria-orientation="horizontal" aria-label="Resize agents and events"></div>
               <section class="panel">
                 <h2>Event Feed</h2>
                 <div id="events"></div>
@@ -325,6 +421,241 @@ defmodule RLM.Observability.UI do
             chatLastMessageId: 0,
             chatBusy: false
           };
+
+          function isMobileLayout() {
+            return window.matchMedia("(max-width: 980px)").matches;
+          }
+
+          function setupMainSplitter() {
+            const main = document.querySelector("main");
+            const splitter = document.getElementById("main-splitter");
+            if (!main || !splitter) return;
+
+            const MIN_CHAT = 320;
+            const MIN_OBSERVABILITY = 420;
+            const SPLITTER_WIDTH = 10;
+            let dragging = false;
+            let activePointerId = null;
+
+            function clampChatWidth(nextWidth) {
+              const rect = main.getBoundingClientRect();
+              const maxChat = Math.max(MIN_CHAT, rect.width - SPLITTER_WIDTH - MIN_OBSERVABILITY);
+              return Math.min(maxChat, Math.max(MIN_CHAT, nextWidth));
+            }
+
+            function applyChatWidth(nextWidth) {
+              const clamped = clampChatWidth(nextWidth);
+              main.style.setProperty("--chat-col", `${clamped}px`);
+            }
+
+            function stopDrag(event) {
+              if (!dragging) return;
+              dragging = false;
+              document.body.classList.remove("resizing-col");
+
+              if (
+                event &&
+                  activePointerId != null &&
+                  splitter.hasPointerCapture &&
+                  splitter.hasPointerCapture(activePointerId)
+              ) {
+                splitter.releasePointerCapture(activePointerId);
+              }
+
+              activePointerId = null;
+            }
+
+            splitter.addEventListener("pointerdown", event => {
+              if (isMobileLayout()) return;
+              dragging = true;
+              activePointerId = event.pointerId;
+              document.body.classList.add("resizing-col");
+              splitter.setPointerCapture(event.pointerId);
+              const rect = main.getBoundingClientRect();
+              applyChatWidth(event.clientX - rect.left);
+              event.preventDefault();
+            });
+
+            splitter.addEventListener("pointermove", event => {
+              if (!dragging || event.pointerId !== activePointerId) return;
+              const rect = main.getBoundingClientRect();
+              applyChatWidth(event.clientX - rect.left);
+            });
+
+            splitter.addEventListener("pointerup", stopDrag);
+            splitter.addEventListener("pointercancel", stopDrag);
+            window.addEventListener("pointerup", stopDrag);
+
+            window.addEventListener("resize", () => {
+              if (isMobileLayout()) {
+                stopDrag();
+                main.style.removeProperty("--chat-col");
+                return;
+              }
+
+              const current = Number.parseFloat(getComputedStyle(main).getPropertyValue("--chat-col"));
+              if (Number.isFinite(current)) {
+                applyChatWidth(current);
+              }
+            });
+          }
+
+          function setupObsColumnSplitter() {
+            const container = document.getElementById("observability-column");
+            const splitter = document.getElementById("obs-column-splitter");
+            if (!container || !splitter) return;
+
+            const MIN_CONTEXT = 320;
+            const MIN_SIDE = 220;
+            const SPLITTER_WIDTH = 10;
+            let dragging = false;
+            let activePointerId = null;
+
+            function applyFromPointer(clientX) {
+              const rect = container.getBoundingClientRect();
+              const desiredContext = clientX - rect.left;
+              const maxContext = Math.max(MIN_CONTEXT, rect.width - SPLITTER_WIDTH - MIN_SIDE);
+              const contextWidth = Math.min(maxContext, Math.max(MIN_CONTEXT, desiredContext));
+              const sideWidth = rect.width - SPLITTER_WIDTH - contextWidth;
+              container.style.setProperty("--obs-side-col", `${sideWidth}px`);
+            }
+
+            function clampSideWidth(sideWidth) {
+              const rect = container.getBoundingClientRect();
+              const maxSide = Math.max(MIN_SIDE, rect.width - SPLITTER_WIDTH - MIN_CONTEXT);
+              return Math.min(maxSide, Math.max(MIN_SIDE, sideWidth));
+            }
+
+            function stopDrag(event) {
+              if (!dragging) return;
+              dragging = false;
+              document.body.classList.remove("resizing-col");
+
+              if (
+                event &&
+                  activePointerId != null &&
+                  splitter.hasPointerCapture &&
+                  splitter.hasPointerCapture(activePointerId)
+              ) {
+                splitter.releasePointerCapture(activePointerId);
+              }
+
+              activePointerId = null;
+            }
+
+            splitter.addEventListener("pointerdown", event => {
+              if (isMobileLayout()) return;
+              dragging = true;
+              activePointerId = event.pointerId;
+              document.body.classList.add("resizing-col");
+              splitter.setPointerCapture(event.pointerId);
+              applyFromPointer(event.clientX);
+              event.preventDefault();
+            });
+
+            splitter.addEventListener("pointermove", event => {
+              if (!dragging || event.pointerId !== activePointerId) return;
+              applyFromPointer(event.clientX);
+            });
+
+            splitter.addEventListener("pointerup", stopDrag);
+            splitter.addEventListener("pointercancel", stopDrag);
+            window.addEventListener("pointerup", stopDrag);
+
+            window.addEventListener("resize", () => {
+              if (isMobileLayout()) {
+                stopDrag();
+                container.style.removeProperty("--obs-side-col");
+                return;
+              }
+
+              const current = Number.parseFloat(
+                getComputedStyle(container).getPropertyValue("--obs-side-col")
+              );
+
+              if (Number.isFinite(current)) {
+                container.style.setProperty("--obs-side-col", `${clampSideWidth(current)}px`);
+              }
+            });
+          }
+
+          function setupObsStackSplitter() {
+            const container = document.getElementById("obs-side-stack");
+            const splitter = document.getElementById("obs-stack-splitter");
+            if (!container || !splitter) return;
+
+            const MIN_AGENTS = 140;
+            const MIN_EVENTS = 140;
+            const SPLITTER_HEIGHT = 10;
+            let dragging = false;
+            let activePointerId = null;
+
+            function applyFromPointer(clientY) {
+              const rect = container.getBoundingClientRect();
+              const desiredAgents = clientY - rect.top;
+              const maxAgents = Math.max(MIN_AGENTS, rect.height - SPLITTER_HEIGHT - MIN_EVENTS);
+              const agentsHeight = Math.min(maxAgents, Math.max(MIN_AGENTS, desiredAgents));
+              container.style.setProperty("--obs-agents-row", `${agentsHeight}px`);
+            }
+
+            function clampAgentsHeight(height) {
+              const rect = container.getBoundingClientRect();
+              const maxAgents = Math.max(MIN_AGENTS, rect.height - SPLITTER_HEIGHT - MIN_EVENTS);
+              return Math.min(maxAgents, Math.max(MIN_AGENTS, height));
+            }
+
+            function stopDrag(event) {
+              if (!dragging) return;
+              dragging = false;
+              document.body.classList.remove("resizing-row");
+
+              if (
+                event &&
+                  activePointerId != null &&
+                  splitter.hasPointerCapture &&
+                  splitter.hasPointerCapture(activePointerId)
+              ) {
+                splitter.releasePointerCapture(activePointerId);
+              }
+
+              activePointerId = null;
+            }
+
+            splitter.addEventListener("pointerdown", event => {
+              if (isMobileLayout()) return;
+              dragging = true;
+              activePointerId = event.pointerId;
+              document.body.classList.add("resizing-row");
+              splitter.setPointerCapture(event.pointerId);
+              applyFromPointer(event.clientY);
+              event.preventDefault();
+            });
+
+            splitter.addEventListener("pointermove", event => {
+              if (!dragging || event.pointerId !== activePointerId) return;
+              applyFromPointer(event.clientY);
+            });
+
+            splitter.addEventListener("pointerup", stopDrag);
+            splitter.addEventListener("pointercancel", stopDrag);
+            window.addEventListener("pointerup", stopDrag);
+
+            window.addEventListener("resize", () => {
+              if (isMobileLayout()) {
+                stopDrag();
+                container.style.removeProperty("--obs-agents-row");
+                return;
+              }
+
+              const current = Number.parseFloat(
+                getComputedStyle(container).getPropertyValue("--obs-agents-row")
+              );
+
+              if (Number.isFinite(current)) {
+                container.style.setProperty("--obs-agents-row", `${clampAgentsHeight(current)}px`);
+              }
+            });
+          }
 
           async function fetchJSON(url, opts = {}) {
             const res = await fetch(url, opts);
@@ -670,6 +1001,10 @@ defmodule RLM.Observability.UI do
               }
             });
           }
+
+          setupMainSplitter();
+          setupObsColumnSplitter();
+          setupObsStackSplitter();
 
           Promise.all([loadChat(true), loadAgents()])
             .then(() => {
