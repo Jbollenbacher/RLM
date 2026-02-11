@@ -59,7 +59,7 @@ mix rlm --observe
 mix rlm --observe --observe-port 4005
 ```
 
-When observability is enabled, the UI is served at `http://127.0.0.1:<port>`.
+When observability is enabled, the UI is served at `http://127.0.0.1:<port>` and the CLI prints the URL on startup.
 
 ## Architecture
 

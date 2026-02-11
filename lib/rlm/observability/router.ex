@@ -22,7 +22,9 @@ defmodule RLM.Observability.Router do
   end
 
   get "/api/agents/:id/context" do
+    include_system = parse_bool(Map.get(conn.query_params, "include_system", "0"))
     snapshot = RLM.Observability.Store.latest_snapshot(id)
+    snapshot = maybe_strip_system_prompt(snapshot, include_system)
     json(conn, 200, %{snapshot: snapshot})
   end
 
@@ -67,5 +69,20 @@ defmodule RLM.Observability.Router do
       {int, _} -> int
       :error -> 0
     end
+  end
+
+  defp parse_bool(value) when value in [true, "true", "1", "yes", "on"], do: true
+  defp parse_bool(_value), do: false
+
+  defp maybe_strip_system_prompt(nil, _include_system), do: nil
+  defp maybe_strip_system_prompt(snapshot, true), do: snapshot
+
+  defp maybe_strip_system_prompt(snapshot, false) do
+    filtered =
+      Map.get(snapshot, :transcript_without_system) ||
+        Map.get(snapshot, :transcript) ||
+        ""
+
+    Map.put(snapshot, :transcript, filtered)
   end
 end

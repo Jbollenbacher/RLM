@@ -62,6 +62,23 @@ defmodule RLM.Observability.UI do
             letter-spacing: 0.12em;
             color: var(--muted);
           }
+          .panel-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+          }
+          .toggle {
+            font-size: 12px;
+            color: var(--muted);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            user-select: none;
+          }
+          .toggle input {
+            accent-color: var(--accent);
+          }
           #agents {
             overflow: auto;
             font-size: 13px;
@@ -119,7 +136,13 @@ defmodule RLM.Observability.UI do
             <div id="agents"></div>
           </section>
           <section class="panel">
-            <h2>Context Window</h2>
+            <div class="panel-header">
+              <h2>Context Window</h2>
+              <label class="toggle">
+                <input type="checkbox" id="toggle-system" />
+                Show system prompt
+              </label>
+            </div>
             <div id="context" class="muted">Select an agent to view context.</div>
           </section>
           <section class="panel">
@@ -133,7 +156,8 @@ defmodule RLM.Observability.UI do
             selectedAgent: null,
             lastEventTs: 0,
             lastEventId: 0,
-            lastSnapshotId: 0
+            lastSnapshotId: 0,
+            showSystem: false
           };
 
           async function fetchJSON(url) {
@@ -172,7 +196,10 @@ defmodule RLM.Observability.UI do
 
           async function loadContext(forceScroll) {
             if (!state.selectedAgent) return;
-            const data = await fetchJSON(`/api/agents/${state.selectedAgent}/context`);
+            const includeSystem = state.showSystem ? "1" : "0";
+            const data = await fetchJSON(
+              `/api/agents/${state.selectedAgent}/context?include_system=${includeSystem}`
+            );
             const snapshot = data.snapshot;
             const contextEl = document.getElementById("context");
             if (!snapshot) {
@@ -223,6 +250,15 @@ defmodule RLM.Observability.UI do
             await loadContext(false);
             await pollEvents();
             setTimeout(loop, 1000);
+          }
+
+          const systemToggle = document.getElementById("toggle-system");
+          if (systemToggle) {
+            systemToggle.addEventListener("change", () => {
+              state.showSystem = systemToggle.checked;
+              state.lastSnapshotId = 0;
+              loadContext(true);
+            });
           }
 
           loadAgents().then(() => {

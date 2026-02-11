@@ -189,7 +189,10 @@ defmodule RLM.Loop do
   end
 
   defp no_code_nudge do
-    "[REPL][AGENT]\n[No code block found. Please respond with an ```elixir code block.]"
+    """
+    [REPL][AGENT]
+    [No code block found. Respond with exactly one ```elixir code block. Do not use IO.puts/IO.inspect to answer; set final_answer instead.]
+    """
   end
 
   defp last_user_nudge?(history) do
@@ -229,6 +232,10 @@ defmodule RLM.Loop do
   defp normalize_answer(term),
     do: inspect(term, pretty: true, limit: :infinity, printable_limit: :infinity)
 
+  defp strip_leading_agent_tags(text) when is_binary(text) do
+    Regex.replace(~r/^(?:\s*\[AGENT\]\s*)+/, text, "")
+  end
+
   defp handle_response(
          response,
          history,
@@ -248,7 +255,8 @@ defmodule RLM.Loop do
         {prev_codes, repeated_code?} = track_code_repetition(prev_codes, code)
 
         # Add agent message to history
-        history = history ++ [%{role: :assistant, content: "[AGENT]\n" <> response}]
+        clean_response = strip_leading_agent_tags(response)
+        history = history ++ [%{role: :assistant, content: clean_response}]
 
         # Eval
         {status, full_stdout, result, new_bindings} =
@@ -271,8 +279,20 @@ defmodule RLM.Loop do
           )
 
         # Build feedback message
-        feedback = RLM.Prompt.format_eval_output(truncated_stdout, full_stderr, status, result)
-        history = history ++ [%{role: :user, content: feedback}]
+        final_answer_value = Keyword.get(new_bindings, :final_answer)
+        suppress_result? =
+          status == :ok and final_answer_value != nil and result == final_answer_value
+
+        result_for_output = if suppress_result?, do: nil, else: result
+        feedback =
+          RLM.Prompt.format_eval_output(truncated_stdout, full_stderr, status, result_for_output)
+
+        history =
+          if suppress_result? and truncated_stdout == "" and full_stderr == "" do
+            history
+          else
+            history ++ [%{role: :user, content: feedback}]
+          end
 
         history =
           if repeated_code? do
@@ -294,11 +314,17 @@ defmodule RLM.Loop do
           {:ok, answer} ->
             Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
             RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
-            {{:ok, normalize_answer(answer)}, history, new_bindings}
+            normalized = normalize_answer(answer)
+            compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
+            RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
+            {{:ok, normalized}, history, new_bindings}
 
           {:error, reason} ->
             RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
-            {{:error, normalize_answer(reason)}, history, new_bindings}
+            normalized = normalize_answer(reason)
+            compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
+            RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
+            {{:error, normalized}, history, new_bindings}
 
           nil ->
             RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
@@ -307,7 +333,10 @@ defmodule RLM.Loop do
           other when other != nil ->
             Logger.info("[RLM] depth=#{depth} completed with raw answer at iteration=#{iteration}")
             RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
-            {{:ok, normalize_answer(other)}, history, new_bindings}
+            normalized = normalize_answer(other)
+            compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
+            RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
+            {{:ok, normalized}, history, new_bindings}
         end
 
       {:error, :no_code_block} ->
@@ -316,14 +345,18 @@ defmodule RLM.Loop do
 
         if last_user_nudge?(history) do
           Logger.warning("[RLM] depth=#{depth} accepting plain-text response after repeated no-code")
-          history = history ++ [%{role: :assistant, content: "[AGENT]\n" <> response}]
+          clean_response = strip_leading_agent_tags(response)
+          history = history ++ [%{role: :assistant, content: clean_response}]
           RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
+          compacted? = Keyword.get(bindings, :compacted_history, "") != ""
+          RLM.Observability.snapshot_context(agent_id, iteration, history, config, compacted?: compacted?)
           {{:ok, normalize_answer(response)}, history, bindings}
         else
+          clean_response = strip_leading_agent_tags(response)
           history =
             history ++
               [
-                %{role: :assistant, content: "[AGENT]\n" <> response},
+                %{role: :assistant, content: clean_response},
                 %{role: :user, content: no_code_nudge()}
               ]
 

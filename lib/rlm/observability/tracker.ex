@@ -36,12 +36,22 @@ defmodule RLM.Observability.Tracker do
     context_window_size_chars = String.length(transcript)
     preview = RLM.Truncate.truncate(transcript, head: config.truncation_head, tail: config.truncation_tail)
 
+    history_without_system =
+      Enum.reject(history, fn %{role: role} -> role == :system end)
+
+    transcript_without_system =
+      history_without_system
+      |> serialize_history()
+      |> maybe_truncate(config.obs_max_context_window_chars)
+      |> elem(0)
+
     snapshot = %{
       agent_id: agent_id,
       iteration: iteration,
       context_window_size_chars: context_window_size_chars,
       preview: preview,
       transcript: transcript,
+      transcript_without_system: transcript_without_system,
       truncated_bytes: truncated_bytes,
       compacted?: Keyword.get(opts, :compacted?, false)
     }
@@ -50,7 +60,7 @@ defmodule RLM.Observability.Tracker do
   end
 
   defp serialize_history(history) do
-    Enum.map_join(history, "\n\n---\n\n", fn %{role: role, content: content} ->
+    Enum.map_join(history, "\n\n", fn %{role: role, content: content} ->
       {label, cleaned} = label_message(role, to_string(content))
       "[#{label}]\n#{cleaned}"
     end)
@@ -59,7 +69,7 @@ defmodule RLM.Observability.Tracker do
   defp label_message(:user, content) do
     cond do
       String.starts_with?(content, "[REPL][AGENT]") ->
-        {"REPL/AGENT", strip_tag(content, "[REPL][AGENT]")}
+        {"REPL", strip_tag(content, "[REPL][AGENT]")}
 
       String.starts_with?(content, "[PRINCIPAL]") ->
         {"PRINCIPAL", strip_tag(content, "[PRINCIPAL]")}
@@ -70,13 +80,23 @@ defmodule RLM.Observability.Tracker do
   end
 
   defp label_message(:assistant, content) do
-    if String.starts_with?(content, "[AGENT]") do
-      {"AGENT", strip_tag(content, "[AGENT]")}
-    else
-      {"AGENT", content}
-    end
+    cleaned =
+      if String.starts_with?(content, "[AGENT]") do
+        strip_tag(content, "[AGENT]")
+      else
+        content
+      end
+
+    label = if agent_code_message?(cleaned), do: "AGENT_CODE", else: "AGENT"
+    {label, cleaned}
   end
   defp label_message(role, content), do: {role |> to_string() |> String.upcase(), content}
+
+  defp agent_code_message?(content) do
+    content
+    |> String.trim_leading()
+    |> String.starts_with?("```")
+  end
 
   defp strip_tag(content, tag) do
     content

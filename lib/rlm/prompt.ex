@@ -6,17 +6,10 @@ defmodule RLM.Prompt do
 
   @spec initial_user_message(String.t(), keyword()) :: String.t()
   def initial_user_message(context, opts \\ []) do
-    size = byte_size(context)
-    line_count = context |> String.split("\n") |> length()
-    {preview_label, preview_text} =
+    preview_text =
       case RLM.Helpers.latest_principal_message(context) do
-        {:ok, message} ->
-          {"Latest principal message preview (head+tail 500 chars):",
-           RLM.Truncate.truncate(message, head: 250, tail: 250)}
-
-        {:error, _reason} ->
-          {"Context preview (head+tail 500 chars):",
-           RLM.Truncate.truncate(context, head: 250, tail: 250)}
+        {:ok, message} -> RLM.Truncate.truncate(message, head: 250, tail: 250)
+        {:error, _reason} -> RLM.Truncate.truncate(context, head: 250, tail: 250)
       end
     workspace_available = Keyword.get(opts, :workspace_available, false)
     workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
@@ -24,22 +17,17 @@ defmodule RLM.Prompt do
     workspace_note =
       if workspace_available do
         if workspace_read_only do
-          "Workspace access: read-only. Use ls() and read_file() with relative paths.\n"
+          "[SYSTEM]\nWorkspace access is read-only. Use ls() and read_file() with relative paths.\n\n"
         else
-          "Workspace access: enabled. Use ls(), read_file(), edit_file(), and create_file() with relative paths (no workspace/ prefix).\n"
+          "[SYSTEM]\nWorkspace access is read-write. Use ls(), read_file(), edit_file(), and create_file() with relative paths.\n\n"
         end
       else
         ""
       end
 
-    """
-    [PRINCIPAL]
-    Input: #{size} bytes, #{line_count} lines.
-    #{preview_label}
-    #{preview_text}
+    how_to_respond_note = "[SYSTEM]\nYou can only communuicate with the Principal by setting `final_answer` in an ```elixer codeblock. Proceed according to the system propmt."
 
-    #{workspace_note}\
-    """
+    "#{workspace_note}[PRINCIPAL]\n#{preview_text}\n\n#{how_to_respond_note}"
   end
 
   @spec format_eval_output(String.t(), String.t(), :ok | :error, any()) :: String.t()
