@@ -32,9 +32,17 @@ defmodule RLM.Observability.Tracker do
   @spec snapshot_context(String.t(), non_neg_integer(), [map()], RLM.Config.t(), keyword()) :: :ok
   def snapshot_context(agent_id, iteration, history, config, opts \\ []) do
     transcript = serialize_history(history)
-    {transcript, truncated_bytes} = maybe_truncate(transcript, config.obs_max_context_window_chars)
+
+    {transcript, truncated_bytes} =
+      maybe_truncate(transcript, config.obs_max_context_window_chars)
+
     context_window_size_chars = String.length(transcript)
-    preview = RLM.Truncate.truncate(transcript, head: config.truncation_head, tail: config.truncation_tail)
+
+    preview =
+      RLM.Truncate.truncate(transcript,
+        head: config.truncation_head,
+        tail: config.truncation_tail
+      )
 
     history_without_system =
       Enum.reject(history, fn %{role: role} -> role == :system end)
@@ -87,16 +95,10 @@ defmodule RLM.Observability.Tracker do
         content
       end
 
-    label = if agent_code_message?(cleaned), do: "AGENT_CODE", else: "AGENT"
-    {label, cleaned}
+    {"AGENT", cleaned}
   end
-  defp label_message(role, content), do: {role |> to_string() |> String.upcase(), content}
 
-  defp agent_code_message?(content) do
-    content
-    |> String.trim_leading()
-    |> String.starts_with?("```")
-  end
+  defp label_message(role, content), do: {role |> to_string() |> String.upcase(), content}
 
   defp strip_tag(content, tag) do
     content

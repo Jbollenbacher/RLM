@@ -30,7 +30,7 @@ defmodule RLM.EvalTest do
 
   describe "error handling" do
     test "raises return error tuple with unchanged bindings" do
-      {:error, stdout, bindings} = RLM.Eval.eval(~s[raise "boom"], [x: 42])
+      {:error, stdout, bindings} = RLM.Eval.eval(~s[raise "boom"], x: 42)
       assert stdout =~ "boom"
       assert bindings == [x: 42]
     end

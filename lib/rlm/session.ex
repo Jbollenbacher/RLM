@@ -37,12 +37,16 @@ defmodule RLM.Session do
 
     history = [%{role: :system, content: RLM.Prompt.system_prompt()}]
 
-    RLM.Observability.emit([:rlm, :agent, :start], %{system_time: System.system_time(:millisecond)}, %{
-      agent_id: id,
-      parent_id: parent_agent_id,
-      model: model,
-      depth: depth
-    })
+    RLM.Observability.emit(
+      [:rlm, :agent, :start],
+      %{system_time: System.system_time(:millisecond)},
+      %{
+        agent_id: id,
+        parent_id: parent_agent_id,
+        model: model,
+        depth: depth
+      }
+    )
 
     %__MODULE__{
       id: id,
@@ -95,6 +99,15 @@ defmodule RLM.Session do
     end
   end
 
+  @spec principal_interrupt(t(), String.t()) :: t()
+  def principal_interrupt(%__MODULE__{} = session, note) when is_binary(note) do
+    bindings = session.bindings
+    updated_context = append_turn(Keyword.fetch!(bindings, :context), "Principal", note)
+    updated_history = session.history ++ [%{role: :user, content: note}]
+    updated_bindings = Keyword.put(bindings, :context, updated_context)
+    %__MODULE__{session | history: updated_history, bindings: updated_bindings}
+  end
+
   defp build_prompt_message(history, context, bindings) do
     if length(history) == 1 do
       workspace_available = Keyword.get(bindings, :workspace_root) != nil
@@ -105,12 +118,13 @@ defmodule RLM.Session do
         workspace_read_only: workspace_read_only
       )
     else
-      RLM.Prompt.initial_user_message(context)
+      RLM.Prompt.followup_user_message(context)
     end
   end
 
   defp append_turn(context, role, message) do
     prefix = if context == "", do: "", else: "\n\n"
+
     marker =
       case role do
         "Principal" -> RLM.Helpers.chat_marker(:principal)

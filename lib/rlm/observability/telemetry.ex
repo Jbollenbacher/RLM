@@ -34,7 +34,11 @@ defmodule RLM.Observability.Telemetry do
   end
 
   def handle_event([:rlm, :agent, :end], _measurements, metadata, _config) do
-    Tracker.end_agent(metadata.agent_id, metadata.status, Map.drop(metadata, [:agent_id, :status]))
+    Tracker.end_agent(
+      metadata.agent_id,
+      metadata.status,
+      Map.drop(metadata, [:agent_id, :status])
+    )
   end
 
   def handle_event([:rlm, :iteration, :start], _measurements, metadata, _config) do

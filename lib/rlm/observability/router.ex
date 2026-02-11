@@ -1,9 +1,16 @@
 defmodule RLM.Observability.Router do
   use Plug.Router
 
-  plug :fetch_qs
-  plug :match
-  plug :dispatch
+  plug(:fetch_qs)
+
+  plug(Plug.Parsers,
+    parsers: [:json],
+    pass: ["application/json"],
+    json_decoder: Jason
+  )
+
+  plug(:match)
+  plug(:dispatch)
 
   get "/" do
     conn
@@ -46,6 +53,39 @@ defmodule RLM.Observability.Router do
     json(conn, 200, %{events: events})
   end
 
+  get "/api/chat" do
+    case RLM.Observability.Chat.state() do
+      {:ok, chat_state} ->
+        json(conn, 200, chat_state)
+
+      {:error, reason} ->
+        json(conn, 404, %{error: reason})
+    end
+  end
+
+  post "/api/chat" do
+    case message_from_body(conn.body_params) do
+      {:ok, message} ->
+        case RLM.Observability.Chat.ask(message) do
+          {:ok, response} -> json(conn, 202, response)
+          {:error, reason} -> json(conn, 409, %{error: reason})
+        end
+
+      {:error, reason} ->
+        json(conn, 422, %{error: reason})
+    end
+  end
+
+  post "/api/chat/stop" do
+    case RLM.Observability.Chat.stop() do
+      {:ok, response} ->
+        json(conn, 200, response)
+
+      {:error, reason} ->
+        json(conn, 404, %{error: reason})
+    end
+  end
+
   match _ do
     send_resp(conn, 404, "Not found")
   end
@@ -85,4 +125,19 @@ defmodule RLM.Observability.Router do
 
     Map.put(snapshot, :transcript, filtered)
   end
+
+  defp message_from_body(params) when is_map(params) do
+    message = Map.get(params, "message") || Map.get(params, :message)
+
+    case message do
+      value when is_binary(value) ->
+        trimmed = String.trim(value)
+        if trimmed == "", do: {:error, "Message cannot be empty"}, else: {:ok, trimmed}
+
+      _ ->
+        {:error, "Missing `message` in request body"}
+    end
+  end
+
+  defp message_from_body(_), do: {:error, "Invalid request body"}
 end
