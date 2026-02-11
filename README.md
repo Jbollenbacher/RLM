@@ -1,3 +1,5 @@
+Under construction
+
 # RLM — Recursive Language Model
 
 An Elixir implementation of the Recursive Language Model pattern. The RLM addresses LLM context window limitations by keeping input data out of the context entirely — instead, the LLM writes code in a persistent REPL to inspect, chunk, and recursively process data through sub-LLM calls.
@@ -53,19 +55,22 @@ mix rlm --workspace /path/to/project --read-only
 # Show logs
 mix rlm --verbose "What is 2 + 2?"
 
-# Observability UI (embedded)
-mix rlm --observe
-# Custom port
-mix rlm --observe --observe-port 4005
-
-# Web chat UI (single-session MVP)
+# Web chat UI
 mix rlm --web
 # Custom port
 mix rlm --web --web-port 4005
 ```
 
-When observability is enabled, the UI is served at `http://127.0.0.1:<port>` and the CLI prints the URL on startup.
-`--web` serves the same UI and adds a bottom chat panel so you can chat in-browser instead of the CLI prompt.
+## Web UI
+
+`mix rlm --web` starts a single-session web chat experience with observability built in:
+
+- Chat panel and observability panels shown side-by-side
+- Context window, agent tree, and event feed visible during execution
+- Resizable panel boundaries for layout control
+- `Enter` sends chat, `Shift+Enter` inserts a newline
+- `Stop` interrupts the current generation and records a principal interruption note
+
 
 ## Architecture
 

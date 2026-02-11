@@ -7,6 +7,7 @@
 - change the name of "context" variable. thats confusing with context window. 
 - stop button should stop ALL subagents.  
     - persist somehow? or just kill?
+- make CLI deprecated and webapp default. switch from --web to --cli.
 
 - do a general tidy up. this repo is getting bloated af. reduce lines, drop redundancies, refactor for concision, identify and cut vestigial stuff. 
 
