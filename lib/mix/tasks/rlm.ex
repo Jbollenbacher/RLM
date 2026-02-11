@@ -14,12 +14,15 @@ defmodule Mix.Tasks.Rlm do
           read_only: :boolean,
           interactive: :boolean,
           verbose: :boolean,
-          debug: :boolean
+          debug: :boolean,
+          observe: :boolean,
+          observe_port: :integer
         ],
         aliases: [w: :workspace, i: :interactive]
       )
 
     configure_logger(opts)
+    maybe_start_observability(opts)
     query = Enum.join(positional, " ")
 
     workspace_root = Keyword.get(opts, :workspace)
@@ -110,6 +113,23 @@ defmodule Mix.Tasks.Rlm do
       Keyword.get(opts, :debug, false) -> Logger.configure(level: :debug)
       Keyword.get(opts, :verbose, false) -> Logger.configure(level: :info)
       true -> Logger.configure(level: :warning)
+    end
+  end
+
+  defp maybe_start_observability(opts) do
+    observe_flag = Keyword.get(opts, :observe, false)
+    observe_env = System.get_env("RLM_OBSERVE") in ["1", "true", "TRUE"]
+
+    if observe_flag or observe_env do
+      port =
+        Keyword.get(opts, :observe_port) ||
+          case System.get_env("RLM_OBSERVE_PORT") do
+            nil -> 4005
+            value -> String.to_integer(value)
+          end
+
+      :ok = RLM.Observability.start(port: port)
+      IO.puts(:stderr, "Observability UI: http://127.0.0.1:#{port}")
     end
   end
 

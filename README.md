@@ -31,7 +31,7 @@ mix test
 ## CLI
 
 The Mix task exposes a simple CLI for single-turn and multi-turn sessions.
-User messages are appended to `context`, and the model responds to the latest user message inside that context.
+Principal messages are appended to `context`, and the model responds to the latest principal message inside that context.
 The input preview includes both the head and tail of `context` so the latest turn is visible.
 
 ```bash
@@ -52,7 +52,14 @@ mix rlm --workspace /path/to/project --read-only
 
 # Show logs
 mix rlm --verbose "What is 2 + 2?"
+
+# Observability UI (embedded)
+mix rlm --observe
+# Custom port
+mix rlm --observe --observe-port 4005
 ```
+
+When observability is enabled, the UI is served at `http://127.0.0.1:<port>` and the CLI prints the URL on startup.
 
 ## Architecture
 

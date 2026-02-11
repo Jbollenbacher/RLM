@@ -72,7 +72,7 @@ defmodule RLM.LoopTest do
       bindings = [context: "x"]
 
       {new_history, new_bindings} =
-        RLM.Loop.maybe_compact(history, bindings, config.model_large, config)
+        RLM.Loop.maybe_compact(history, bindings, config.model_large, config, "agent_test")
 
       assert length(new_history) == 2
       assert Enum.at(new_history, 1).content =~ "[Context Window Compacted]"
@@ -101,10 +101,10 @@ defmodule RLM.LoopTest do
       bindings = [context: "x"]
 
       {_history_a, bindings_a} =
-        RLM.Loop.maybe_compact(history_a, bindings, config.model_large, config)
+        RLM.Loop.maybe_compact(history_a, bindings, config.model_large, config, "agent_test")
 
       {_history_b, bindings_b} =
-        RLM.Loop.maybe_compact(history_b, bindings_a, config.model_large, config)
+        RLM.Loop.maybe_compact(history_b, bindings_a, config.model_large, config, "agent_test")
 
       combined = Keyword.get(bindings_b, :compacted_history)
       assert combined =~ "---"
@@ -131,7 +131,7 @@ defmodule RLM.LoopTest do
       bindings = [context: "x"]
 
       {history_result, bindings_result} =
-        RLM.Loop.maybe_compact(history, bindings, config.model_large, config)
+        RLM.Loop.maybe_compact(history, bindings, config.model_large, config, "agent_test")
 
       refute Keyword.has_key?(bindings_result, :compacted_history)
       assert history_result == history

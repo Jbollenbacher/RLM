@@ -41,6 +41,7 @@ defmodule RLM.Sessions do
     case lookup_pid(session_id) do
       {:ok, pid} ->
         DynamicSupervisor.terminate_child(@supervisor, pid)
+        RLM.Observability.emit([:rlm, :agent, :end], %{}, %{agent_id: session_id, status: :done})
         :ok
 
       {:error, reason} ->

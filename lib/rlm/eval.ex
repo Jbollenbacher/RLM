@@ -4,6 +4,18 @@ defmodule RLM.Eval do
           | {:error, String.t(), keyword()}
   def eval(code, bindings, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, 30_000)
+    agent_id = Keyword.get(opts, :agent_id)
+    iteration = Keyword.get(opts, :iteration)
+
+    RLM.Observability.span(
+      :eval,
+      %{agent_id: agent_id, iteration: iteration},
+      fn -> do_eval(code, bindings, timeout) end,
+      &eval_status/1
+    )
+  end
+
+  defp do_eval(code, bindings, timeout) do
     {:ok, stdout_device} = StringIO.open("")
     caller = self()
 
@@ -74,6 +86,9 @@ defmodule RLM.Eval do
         {:error, "Evaluation timed out after #{timeout}ms\n#{stdout}", bindings}
     end
   end
+
+  defp eval_status({:ok, _stdout, _result, _bindings}), do: :ok
+  defp eval_status(_), do: :error
 
   defp format_diagnostics([]), do: ""
 

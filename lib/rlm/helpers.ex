@@ -119,17 +119,19 @@ defmodule RLM.Helpers do
 
   def unique_id(_prefix), do: "id_#{System.unique_integer([:positive, :monotonic])}"
 
-  @chat_user_marker "[RLM_User]"
-  @chat_assistant_marker "[RLM_Assistant]"
+  @chat_principal_marker "[RLM_Principal]"
+  @chat_agent_marker "[RLM_Agent]"
 
-  @spec chat_marker(:user | :assistant) :: String.t()
-  def chat_marker(:user), do: @chat_user_marker
-  def chat_marker(:assistant), do: @chat_assistant_marker
+  @spec chat_marker(:principal | :agent | :user | :assistant) :: String.t()
+  def chat_marker(:principal), do: @chat_principal_marker
+  def chat_marker(:agent), do: @chat_agent_marker
+  def chat_marker(:user), do: @chat_principal_marker
+  def chat_marker(:assistant), do: @chat_agent_marker
 
-  @spec latest_user_message(String.t()) :: {:ok, String.t()} | {:error, String.t()}
-  def latest_user_message(context) when is_binary(context) do
+  @spec latest_principal_message(String.t()) :: {:ok, String.t()} | {:error, String.t()}
+  def latest_principal_message(context) when is_binary(context) do
     pattern =
-      ~r/^\[RLM_User\]\n(.*?)(?=^\[RLM_(?:User|Assistant)\]|\z)/ms
+      ~r/^\[RLM_Principal\]\n(.*?)(?=^\[RLM_(?:Principal|Agent)\]|\z)/ms
 
     case Regex.scan(pattern, context) do
       [] ->
@@ -145,6 +147,9 @@ defmodule RLM.Helpers do
         {:ok, message}
     end
   end
+
+  @deprecated "Use latest_principal_message/1"
+  def latest_user_message(context), do: latest_principal_message(context)
 
   defp matches?(pattern, line) when is_binary(pattern), do: String.contains?(line, pattern)
   defp matches?(%Regex{} = pattern, line), do: Regex.match?(pattern, line)

@@ -51,4 +51,11 @@ defmodule RLM.SessionServer do
   def handle_call(:get_state, _from, %__MODULE__{} = state) do
     {:reply, state.session, state}
   end
+
+  @impl true
+  def terminate(reason, %__MODULE__{session: session}) do
+    status = if reason in [:normal, :shutdown], do: :done, else: :error
+    RLM.Observability.emit([:rlm, :agent, :end], %{}, %{agent_id: session.id, status: status})
+    :ok
+  end
 end
