@@ -220,6 +220,9 @@ def _rlm_write_json_atomic(path, payload):
     tmp.write_text(json.dumps(payload), encoding="utf-8")
     tmp.replace(path)
 
+class _RLMSubagentCrash(RuntimeError):
+    pass
+
 def lm_query(text, model_size="small"):
     bridge_dir = _rlm_to_text(globals().get("_rlm_bridge_dir"))
     if not bridge_dir:
@@ -235,7 +238,11 @@ def lm_query(text, model_size="small"):
     try:
         _rlm_write_json_atomic(
             request_path,
-            {"text": _rlm_to_text(text), "model_size": _rlm_to_text(model_size)}
+            {
+                "text": _rlm_to_text(text),
+                "model_size": _rlm_to_text(model_size),
+                "timeout_ms": timeout_ms
+            }
         )
 
         deadline = time.time() + (timeout_ms / 1000.0)
@@ -246,8 +253,12 @@ def lm_query(text, model_size="small"):
                     response_path.unlink()
                 except Exception:
                     pass
+                if data.get("raise"):
+                    raise _RLMSubagentCrash(str(data.get("payload", "Subagent failed")))
                 return (data.get("status", "error"), data.get("payload"))
             time.sleep(0.01)
+    except _RLMSubagentCrash:
+        raise
     except Exception as exc:
         return ("error", str(exc))
 

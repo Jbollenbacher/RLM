@@ -79,4 +79,37 @@ defmodule RLM.EvalTest do
       assert result == 3
     end
   end
+
+  describe "lm_query crash fallback" do
+    test "preserves specific lm_query errors as return values" do
+      {:ok, stdout, _result, _bindings} =
+        RLM.Eval.eval(~s[print(lm_query("subtask"))], lm_query: fn _text, _opts -> {:error, "boom"} end)
+
+      assert stdout =~ "boom"
+    end
+
+    test "raises in Python when watcher identifies a crashed subagent" do
+      unless Process.whereis(RLM.Observability.Store) do
+        start_supervised!(
+          {RLM.Observability.Store,
+           [max_events_per_agent: 50, max_context_snapshots_per_agent: 10, max_agents: 10]}
+        )
+      end
+
+      lm_query_fn = fn _text, opts ->
+        child_agent_id = Keyword.fetch!(opts, :child_agent_id)
+        RLM.Observability.Tracker.start_agent(child_agent_id, nil, "model", 1)
+
+        RLM.Observability.Tracker.end_agent(child_agent_id, :error, %{
+          source: :pid_down,
+          reason: ":killed"
+        })
+
+        exit(:killed)
+      end
+
+      {:error, stdout, _bindings} = RLM.Eval.eval(~s[lm_query("subtask")], lm_query: lm_query_fn)
+      assert stdout =~ "Subagent crashed before returning a result (watcher)"
+    end
+  end
 end

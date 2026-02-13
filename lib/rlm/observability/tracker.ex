@@ -19,8 +19,12 @@ defmodule RLM.Observability.Tracker do
 
   @spec end_agent(String.t(), :done | :error | :running, map()) :: :ok
   def end_agent(agent_id, status, payload \\ %{}) do
-    Store.update_agent(agent_id, %{status: status})
-    record_event(agent_id, :agent_end, Map.put(payload, :status, status))
+    persist_status(agent_id, status, :agent_end, payload)
+  end
+
+  @spec set_agent_status(String.t(), :done | :error | :running, map()) :: :ok
+  def set_agent_status(agent_id, status, payload \\ %{}) do
+    persist_status(agent_id, status, :agent_status, payload)
   end
 
   @spec record_event(String.t(), atom(), map()) :: :ok
@@ -121,4 +125,9 @@ defmodule RLM.Observability.Tracker do
   end
 
   defp maybe_truncate(transcript, _), do: {transcript, 0}
+
+  defp persist_status(agent_id, status, event_type, payload) do
+    Store.update_agent(agent_id, %{status: status})
+    record_event(agent_id, event_type, Map.put(payload, :status, status))
+  end
 end

@@ -1,62 +1,6 @@
 defmodule RLM.Loop do
   require Logger
 
-  @spec run(keyword()) :: {:ok, String.t()} | {:error, String.t()}
-  def run(opts) do
-    config = Keyword.get_lazy(opts, :config, fn -> RLM.Config.load() end)
-    context = Keyword.fetch!(opts, :context)
-    model = Keyword.get(opts, :model, config.model_large)
-    depth = Keyword.get(opts, :depth, 0)
-    workspace_root = Keyword.get(opts, :workspace_root)
-    workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
-    agent_id = Keyword.get(opts, :agent_id, RLM.Helpers.unique_id("agent"))
-
-    Logger.info("[RLM] depth=#{depth} context_size=#{byte_size(context)}")
-
-    RLM.AgentLimiter.with_slot(config.max_concurrent_agents, fn ->
-      lm_query_fn = build_lm_query(config, depth, workspace_root, workspace_read_only, agent_id)
-
-      initial_bindings = [
-        context: context,
-        lm_query: lm_query_fn,
-        workspace_root: workspace_root,
-        workspace_read_only: workspace_read_only,
-        final_answer: nil,
-        last_stdout: "",
-        last_stderr: "",
-        last_result: nil
-      ]
-
-      system_msg = %{
-        role: :system,
-        content:
-          RLM.Prompt.system_prompt(
-            workspace_available: workspace_root != nil,
-            workspace_read_only: workspace_read_only
-          )
-      }
-
-      user_msg = %{
-        role: :user,
-        content:
-          RLM.Prompt.initial_user_message(context,
-            workspace_available: workspace_root != nil,
-            workspace_read_only: workspace_read_only
-          )
-      }
-
-      initial_history = [system_msg, user_msg]
-
-      {result, _history, _bindings} =
-        iterate(initial_history, initial_bindings, model, config, depth, 0, agent_id)
-
-      case result do
-        {:ok, answer} -> {:ok, answer}
-        {:error, reason} -> {:error, reason}
-      end
-    end)
-  end
-
   @doc false
   def run_turn(history, bindings, model, config, depth, agent_id) do
     iterate(history, bindings, model, config, depth, 0, agent_id)
@@ -71,11 +15,7 @@ defmodule RLM.Loop do
 
       {history, bindings} = maybe_compact(history, bindings, model, config, agent_id)
 
-      compacted? = Keyword.get(bindings, :compacted_history, "") != ""
-
-      RLM.Observability.snapshot_context(agent_id, iteration, history, config,
-        compacted?: compacted?
-      )
+      snapshot_iteration(agent_id, iteration, history, config, bindings)
 
       iteration_started_at = RLM.Observability.iteration_start(agent_id, iteration)
 
@@ -221,6 +161,29 @@ defmodule RLM.Loop do
   defp normalize_answer(term),
     do: inspect(term, pretty: true, limit: :infinity, printable_limit: :infinity)
 
+  defp snapshot_iteration(agent_id, iteration, history, config, bindings) do
+    compacted? = Keyword.get(bindings, :compacted_history, "") != ""
+
+    RLM.Observability.snapshot_context(agent_id, iteration, history, config,
+      compacted?: compacted?
+    )
+  end
+
+  defp finish_iteration(
+         history,
+         bindings,
+         config,
+         agent_id,
+         iteration,
+         iteration_started_at,
+         status,
+         result
+       ) do
+    RLM.Observability.iteration_stop(agent_id, iteration, status, iteration_started_at)
+    snapshot_iteration(agent_id, iteration, history, config, bindings)
+    {result, history, bindings}
+  end
+
   defp strip_leading_agent_tags(text) when is_binary(text) do
     Regex.replace(~r/^(?:\s*\[AGENT\]\s*)+/, text, "")
   end
@@ -295,26 +258,28 @@ defmodule RLM.Loop do
         case Keyword.get(new_bindings, :final_answer) do
           {:ok, answer} ->
             Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
-            RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
-            normalized = normalize_answer(answer)
-            compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
-
-            RLM.Observability.snapshot_context(agent_id, iteration, history, config,
-              compacted?: compacted?
+            finish_iteration(
+              history,
+              new_bindings,
+              config,
+              agent_id,
+              iteration,
+              iteration_started_at,
+              :ok,
+              {:ok, normalize_answer(answer)}
             )
-
-            {{:ok, normalized}, history, new_bindings}
 
           {:error, reason} ->
-            RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
-            normalized = normalize_answer(reason)
-            compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
-
-            RLM.Observability.snapshot_context(agent_id, iteration, history, config,
-              compacted?: compacted?
+            finish_iteration(
+              history,
+              new_bindings,
+              config,
+              agent_id,
+              iteration,
+              iteration_started_at,
+              :error,
+              {:error, normalize_answer(reason)}
             )
-
-            {{:error, normalized}, history, new_bindings}
 
           {:invalid, _other} ->
             Logger.warning(
@@ -358,15 +323,17 @@ defmodule RLM.Loop do
 
           clean_response = strip_leading_agent_tags(response)
           history = history ++ [%{role: :assistant, content: clean_response}]
-          RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
-          compacted? = Keyword.get(bindings, :compacted_history, "") != ""
 
-          RLM.Observability.snapshot_context(agent_id, iteration, history, config,
-            compacted?: compacted?
+          finish_iteration(
+            history,
+            bindings,
+            config,
+            agent_id,
+            iteration,
+            iteration_started_at,
+            :error,
+            {:error, "No code block found after retry; set `final_answer` in Python code."}
           )
-
-          {{:error, "No code block found after retry; set `final_answer` in Python code."},
-           history, bindings}
         else
           clean_response = strip_leading_agent_tags(response)
 
@@ -392,7 +359,7 @@ defmodule RLM.Loop do
       if depth >= config.max_depth do
         {:error, "Maximum recursion depth (#{config.max_depth}) exceeded"}
       else
-        child_agent_id = RLM.Helpers.unique_id("agent")
+        child_agent_id = Keyword.get(opts, :child_agent_id, RLM.Helpers.unique_id("agent"))
 
         RLM.Observability.child_query(
           parent_agent_id,

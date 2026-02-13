@@ -1,5 +1,6 @@
 defmodule RLM.Eval do
   @python_prelude File.read!(Path.join(:code.priv_dir(:rlm), "python_prelude.py"))
+  @default_lm_query_timeout_ms 30_000
 
   @spec eval(String.t(), keyword(), keyword()) ::
           {:ok, String.t(), any(), keyword()}
@@ -206,14 +207,20 @@ defmodule RLM.Eval do
     end
   end
 
-  defp handle_lm_query_request(%{"text" => text, "model_size" => model_size}, lm_query_fn)
+  defp handle_lm_query_request(%{"text" => text, "model_size" => model_size} = payload, lm_query_fn)
        when is_binary(text) do
+    timeout_ms = parse_timeout_ms(Map.get(payload, "timeout_ms"))
     opts = [model_size: parse_model_size(model_size)]
 
-    case lm_query_fn.(text, opts) do
-      {:ok, payload} -> %{"status" => "ok", "payload" => json_term(payload)}
-      {:error, reason} -> %{"status" => "error", "payload" => json_term(reason)}
-      other -> %{"status" => "error", "payload" => "Invalid lm_query return: #{inspect(other)}"}
+    case RLM.Subagent.Call.execute(lm_query_fn, text, opts, timeout_ms: timeout_ms) do
+      {:ok, subagent_payload} ->
+        %{"status" => "ok", "payload" => json_term(subagent_payload)}
+
+      {:error, reason} ->
+        %{"status" => "error", "payload" => json_term(reason)}
+
+      {:error_raise, reason} ->
+        %{"status" => "error", "payload" => json_term(reason), "raise" => true}
     end
   rescue
     e ->
@@ -252,6 +259,17 @@ defmodule RLM.Eval do
   end
 
   defp parse_model_size(_), do: :small
+
+  defp parse_timeout_ms(timeout) when is_integer(timeout) and timeout > 0, do: timeout
+
+  defp parse_timeout_ms(timeout) when is_binary(timeout) do
+    case Integer.parse(timeout) do
+      {value, _} when value > 0 -> value
+      _ -> @default_lm_query_timeout_ms
+    end
+  end
+
+  defp parse_timeout_ms(_timeout), do: @default_lm_query_timeout_ms
 
   defp json_term(value)
        when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
