@@ -57,6 +57,9 @@ defmodule RLM.Observability.Store do
   @spec latest_snapshot(String.t()) :: map() | nil
   def latest_snapshot(agent_id), do: GenServer.call(__MODULE__, {:latest_snapshot, agent_id})
 
+  @spec list_snapshots(keyword()) :: [map()]
+  def list_snapshots(opts \\ []), do: GenServer.call(__MODULE__, {:list_snapshots, opts})
+
   @impl true
   def init(opts) do
     :ets.new(@table_agents, [:named_table, :set, :public, read_concurrency: true])
@@ -167,7 +170,8 @@ defmodule RLM.Observability.Store do
 
   def handle_call({:add_snapshot, snapshot}, _from, state) do
     snapshot_id = System.unique_integer([:positive, :monotonic])
-    snapshot = Map.put(snapshot, :id, snapshot_id)
+    ts = Map.get(snapshot, :ts) || System.system_time(:millisecond)
+    snapshot = snapshot |> Map.put(:id, snapshot_id) |> Map.put(:ts, ts)
     :ets.insert(@table_snapshots, {snapshot_id, snapshot})
 
     {snapshots_by_agent, _removed} =
@@ -193,6 +197,20 @@ defmodule RLM.Observability.Store do
       end
 
     {:reply, snapshot, state}
+  end
+
+  def handle_call({:list_snapshots, opts}, _from, state) do
+    agent_id = Keyword.get(opts, :agent_id)
+    limit = Keyword.get(opts, :limit, 500)
+
+    snapshots =
+      if agent_id do
+        list_snapshots_for_agent(state, agent_id, limit)
+      else
+        list_snapshots_global(limit)
+      end
+
+    {:reply, snapshots, state}
   end
 
   defp enforce_agent_limit(state, agent_id) do
@@ -316,9 +334,46 @@ defmodule RLM.Observability.Store do
     |> Enum.take(limit)
   end
 
+  defp list_snapshots_for_agent(state, agent_id, limit) do
+    queue = Map.get(state.snapshots_by_agent, agent_id, :queue.new())
+
+    queue
+    |> :queue.to_list()
+    |> Enum.map(&lookup_snapshot/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.sort_by(fn snapshot -> {snapshot.ts || 0, snapshot.id} end)
+    |> Enum.take(limit)
+  end
+
+  defp list_snapshots_global(limit) do
+    Stream.unfold(:ets.first(@table_snapshots), fn
+      :"$end_of_table" ->
+        nil
+
+      key ->
+        case :ets.lookup(@table_snapshots, key) do
+          [{^key, snapshot}] ->
+            next_key = :ets.next(@table_snapshots, key)
+            {snapshot, next_key}
+
+          [] ->
+            {nil, :ets.next(@table_snapshots, key)}
+        end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.take(limit)
+  end
+
   defp lookup_event(key) do
     case :ets.lookup(@table_events, key) do
       [{^key, event}] -> event
+      [] -> nil
+    end
+  end
+
+  defp lookup_snapshot(key) do
+    case :ets.lookup(@table_snapshots, key) do
+      [{^key, snapshot}] -> snapshot
       [] -> nil
     end
   end

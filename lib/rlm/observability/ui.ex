@@ -180,8 +180,20 @@ defmodule RLM.Observability.UI do
             font-size: 12px;
             cursor: pointer;
           }
+          #export-logs {
+            padding: 4px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(146, 255, 184, 0.12);
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+          }
           #copy-context:hover {
             background: rgba(107, 220, 255, 0.2);
+          }
+          #export-logs:hover {
+            background: rgba(146, 255, 184, 0.2);
           }
           #context-copy-status {
             min-width: 70px;
@@ -189,6 +201,14 @@ defmodule RLM.Observability.UI do
             color: var(--muted);
           }
           #context-copy-status.error {
+            color: var(--danger);
+          }
+          #context-export-status {
+            min-width: 70px;
+            font-size: 12px;
+            color: var(--muted);
+          }
+          #context-export-status.error {
             color: var(--danger);
           }
           #agents {
@@ -420,6 +440,8 @@ defmodule RLM.Observability.UI do
                   </label>
                   <button id="copy-context" type="button">Copy Context</button>
                   <span id="context-copy-status" aria-live="polite"></span>
+                  <button id="export-logs" type="button">Export Full Agent Logs</button>
+                  <span id="context-export-status" aria-live="polite"></span>
                 </div>
               </div>
               <div id="context" class="muted">Select an agent to view context.</div>
@@ -970,23 +992,23 @@ defmodule RLM.Observability.UI do
             setTimeout(loop, 1000);
           }
 
-          let copyStatusTimeout = null;
+          const statusTimers = {};
 
-          function setCopyStatus(message, isError = false) {
-            const el = document.getElementById("context-copy-status");
+          function setTransientStatus(elementId, message, isError = false) {
+            const el = document.getElementById(elementId);
             if (!el) return;
 
             el.textContent = message;
             el.className = isError ? "error" : "";
 
-            if (copyStatusTimeout) {
-              clearTimeout(copyStatusTimeout);
+            if (statusTimers[elementId]) {
+              clearTimeout(statusTimers[elementId]);
             }
 
-            copyStatusTimeout = setTimeout(() => {
+            statusTimers[elementId] = setTimeout(() => {
               el.textContent = "";
               el.className = "";
-              copyStatusTimeout = null;
+              statusTimers[elementId] = null;
             }, 1500);
           }
 
@@ -995,15 +1017,52 @@ defmodule RLM.Observability.UI do
             const text = (contextEl && contextEl.textContent ? contextEl.textContent : "").trim();
 
             if (!text || text === "Select an agent to view context." || text === "No context yet.") {
-              setCopyStatus("Nothing to copy", true);
+              setTransientStatus("context-copy-status", "Nothing to copy", true);
               return;
             }
 
             try {
               await navigator.clipboard.writeText(text);
-              setCopyStatus("Copied");
+              setTransientStatus("context-copy-status", "Copied");
             } catch (_error) {
-              setCopyStatus("Copy failed", true);
+              setTransientStatus("context-copy-status", "Copy failed", true);
+            }
+          }
+
+          function exportFilenameFromHeader(headerValue) {
+            if (!headerValue) return null;
+            const match = headerValue.match(/filename=\"([^\"]+)\"/i);
+            return match ? match[1] : null;
+          }
+
+          async function downloadFullLogs() {
+            const includeSystem = state.showSystem ? "1" : "0";
+
+            try {
+              const response = await fetch(`/api/export/full_logs?include_system=${includeSystem}`);
+
+              if (!response.ok) {
+                throw new Error(`Export failed (${response.status})`);
+              }
+
+              const blob = await response.blob();
+              const header = response.headers.get("content-disposition");
+              const filename =
+                exportFilenameFromHeader(header) ||
+                `rlm_agent_logs_${new Date().toISOString().replace(/[:]/g, "-")}.json`;
+
+              const url = URL.createObjectURL(blob);
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = filename;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+
+              setTransientStatus("context-export-status", "Downloaded");
+            } catch (error) {
+              setTransientStatus("context-export-status", error.message || "Export failed", true);
             }
           }
 
@@ -1020,6 +1079,13 @@ defmodule RLM.Observability.UI do
           if (copyContextButton) {
             copyContextButton.addEventListener("click", () => {
               copyContextToClipboard();
+            });
+          }
+
+          const exportLogsButton = document.getElementById("export-logs");
+          if (exportLogsButton) {
+            exportLogsButton.addEventListener("click", () => {
+              downloadFullLogs();
             });
           }
 

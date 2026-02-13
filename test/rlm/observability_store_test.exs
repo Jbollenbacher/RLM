@@ -121,4 +121,31 @@ defmodule RLM.ObservabilityStoreTest do
     assert Store.list_events(agent_id: "agent_1", since_ts: 0, since_id: 0, limit: 10) == []
     assert Store.latest_snapshot("agent_1") == nil
   end
+
+  test "list_snapshots returns snapshots ordered by timestamp" do
+    Store.put_agent(%{id: "agent_snap"})
+
+    Store.add_snapshot(%{
+      agent_id: "agent_snap",
+      ts: 2000,
+      iteration: 2,
+      context_window_size_chars: 1,
+      preview: "c",
+      transcript: "c",
+      compacted?: false
+    })
+
+    Store.add_snapshot(%{
+      agent_id: "agent_snap",
+      ts: 1000,
+      iteration: 1,
+      context_window_size_chars: 1,
+      preview: "b",
+      transcript: "b",
+      compacted?: false
+    })
+
+    snapshots = Store.list_snapshots(agent_id: "agent_snap", limit: 10)
+    assert Enum.map(snapshots, & &1.iteration) == [1, 2]
+  end
 end

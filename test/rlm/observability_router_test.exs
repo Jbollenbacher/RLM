@@ -135,6 +135,33 @@ defmodule RLM.ObservabilityRouterTest do
     assert conn.resp_body =~ "two"
   end
 
+  test "full log export endpoint returns downloadable JSON" do
+    Store.put_agent(%{id: "agent_export", status: :running})
+    Store.add_event(%{agent_id: "agent_export", type: :agent_start, payload: %{}, ts: 1000})
+
+    Store.add_snapshot(%{
+      agent_id: "agent_export",
+      ts: 1001,
+      iteration: 0,
+      context_window_size_chars: 10,
+      preview: "preview",
+      transcript: "[PRINCIPAL]\nhello",
+      transcript_without_system: "[PRINCIPAL]\nhello",
+      compacted?: false
+    })
+
+    conn = conn(:get, "/api/export/full_logs?include_system=1") |> Router.call([])
+    assert conn.status == 200
+    assert Plug.Conn.get_resp_header(conn, "content-type") |> Enum.any?(&String.starts_with?(&1, "application/json"))
+
+    assert Plug.Conn.get_resp_header(conn, "content-disposition")
+           |> Enum.any?(&String.contains?(&1, "attachment; filename=\"rlm_agent_logs_"))
+
+    body = Jason.decode!(conn.resp_body)
+    assert body["format"] == "rlm_agent_log_v1"
+    assert is_list(body["agent_tree"])
+  end
+
   defp wait_for_chat_messages(min_count, retries \\ 60)
 
   defp wait_for_chat_messages(_min_count, 0) do

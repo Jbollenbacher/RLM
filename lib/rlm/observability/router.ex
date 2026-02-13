@@ -53,6 +53,18 @@ defmodule RLM.Observability.Router do
     json(conn, 200, %{events: events})
   end
 
+  get "/api/export/full_logs" do
+    include_system = parse_bool(Map.get(conn.query_params, "include_system", "1"))
+    export = RLM.Observability.Export.full_agent_logs(include_system: include_system)
+    filename = export_filename()
+    body = Jason.encode!(export, pretty: true)
+
+    conn
+    |> put_resp_content_type("application/json")
+    |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
+    |> send_resp(200, body)
+  end
+
   get "/api/chat" do
     case RLM.Observability.Chat.state() do
       {:ok, chat_state} ->
@@ -113,6 +125,16 @@ defmodule RLM.Observability.Router do
 
   defp parse_bool(value) when value in [true, "true", "1", "yes", "on"], do: true
   defp parse_bool(_value), do: false
+
+  defp export_filename do
+    timestamp =
+      DateTime.utc_now()
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+      |> String.replace(":", "-")
+
+    "rlm_agent_logs_#{timestamp}.json"
+  end
 
   defp maybe_strip_system_prompt(nil, _include_system), do: nil
   defp maybe_strip_system_prompt(snapshot, true), do: snapshot
