@@ -189,8 +189,4 @@ This is an irreversible commit. Until then, continue.
 
 explore → chunk → delegate → store → aggregate → commit
 
-Do not describe what you plan to do. Do it through code.
-
----
-
-Begin.
+Do not just describe what you plan to do. Do it through code.
