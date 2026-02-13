@@ -3,55 +3,57 @@ defmodule RLM.EvalTest do
 
   describe "eval correctness (spec test 1)" do
     test "captures stdout from print" do
-      {:ok, stdout, _result, _bindings} = RLM.Eval.eval(~s[print("hello")], [])
+      {:ok, stdout, _stderr, _result, _bindings} = RLM.Eval.eval(~s[print("hello")], [])
       assert stdout == "hello\n"
     end
 
     test "stores Python globals in bindings" do
-      {:ok, _stdout, _result, bindings} = RLM.Eval.eval(~s[print("hello")], [])
+      {:ok, _stdout, _stderr, _result, bindings} = RLM.Eval.eval(~s[print("hello")], [])
       assert is_map(Keyword.get(bindings, :python_globals))
     end
   end
 
   describe "binding persistence (spec test 2)" do
     test "bindings persist across eval calls" do
-      {:ok, _, _, bindings} = RLM.Eval.eval("x = 42", [])
-      {:ok, stdout, _, _} = RLM.Eval.eval("print(x)", bindings)
+      {:ok, _, _, _, bindings} = RLM.Eval.eval("x = 42", [])
+      {:ok, stdout, _, _, _} = RLM.Eval.eval("print(x)", bindings)
       assert stdout == "42\n"
     end
 
     test "multiple bindings persist" do
-      {:ok, _, _, b1} = RLM.Eval.eval("x = 1", [])
-      {:ok, _, _, b2} = RLM.Eval.eval("y = x + 1", b1)
-      {:ok, stdout, _, _} = RLM.Eval.eval("print(x + y)", b2)
+      {:ok, _, _, _, b1} = RLM.Eval.eval("x = 1", [])
+      {:ok, _, _, _, b2} = RLM.Eval.eval("y = x + 1", b1)
+      {:ok, stdout, _, _, _} = RLM.Eval.eval("print(x + y)", b2)
       assert stdout == "3\n"
     end
   end
 
   describe "error handling" do
     test "runtime errors return error tuple with unchanged bindings" do
-      {:error, stdout, bindings} = RLM.Eval.eval(~s[raise Exception("boom")], x: 42)
-      assert stdout =~ "boom"
+      {:error, stdout, stderr, bindings} = RLM.Eval.eval(~s[raise Exception("boom")], x: 42)
+      assert stdout <> stderr =~ "boom"
       assert bindings == [x: 42]
     end
 
     test "syntax errors return error tuple" do
-      {:error, stdout, bindings} = RLM.Eval.eval("def foo(", [])
-      assert stdout =~ "SyntaxError"
+      {:error, stdout, stderr, bindings} = RLM.Eval.eval("def foo(", [])
+      assert stdout <> stderr =~ "SyntaxError"
       assert bindings == []
     end
   end
 
   describe "timeout" do
     test "infinite sleep times out" do
-      {:error, stdout, []} = RLM.Eval.eval("import time\ntime.sleep(9999)", [], timeout: 500)
-      assert stdout =~ "timed out"
+      {:error, _stdout, stderr, []} =
+        RLM.Eval.eval("import time\ntime.sleep(9999)", [], timeout: 500)
+
+      assert stderr =~ "timed out"
     end
   end
 
   describe "helper functions" do
     test "grep is available without module prefix" do
-      {:ok, stdout, _, _} =
+      {:ok, stdout, _stderr, _, _} =
         RLM.Eval.eval(
           ~s[print(grep("foo", "line1\\nfoo bar\\nline3"))],
           []
@@ -61,28 +63,30 @@ defmodule RLM.EvalTest do
     end
 
     test "chunks is not available" do
-      {:error, stdout, []} = RLM.Eval.eval(~s[chunks("abcdef", 3)], [])
-      assert stdout =~ "NameError"
-      assert stdout =~ "chunks"
+      {:error, stdout, stderr, []} = RLM.Eval.eval(~s[chunks("abcdef", 3)], [])
+      combined = stdout <> stderr
+      assert combined =~ "NameError"
+      assert combined =~ "chunks"
     end
 
     test "preview is not available" do
-      {:error, stdout, []} = RLM.Eval.eval(~s[preview({"a": 1}, 50)], [])
-      assert stdout =~ "NameError"
-      assert stdout =~ "preview"
+      {:error, stdout, stderr, []} = RLM.Eval.eval(~s[preview({"a": 1}, 50)], [])
+      combined = stdout <> stderr
+      assert combined =~ "NameError"
+      assert combined =~ "preview"
     end
   end
 
   describe "result value" do
     test "returns the result of the last expression" do
-      {:ok, _stdout, result, _bindings} = RLM.Eval.eval("1 + 2", [])
+      {:ok, _stdout, _stderr, result, _bindings} = RLM.Eval.eval("1 + 2", [])
       assert result == 3
     end
   end
 
   describe "async lm_query helpers" do
     test "await surfaces specific lm_query errors" do
-      {:ok, stdout, _result, _bindings} =
+      {:ok, stdout, _stderr, _result, _bindings} =
         RLM.Eval.eval(
           ~s[
 job_id = lm_query("subtask")
@@ -98,7 +102,7 @@ except Exception as exc:
     end
 
     test "dispatch returns child id and poll observes running job" do
-      {:ok, stdout, _result, _bindings} =
+      {:ok, stdout, _stderr, _result, _bindings} =
         RLM.Eval.eval(
           ~s[
 job_id = lm_query("slow-subtask")
@@ -121,7 +125,7 @@ print(state.get("state"))
         exit(:killed)
       end
 
-      {:ok, stdout, _result, _bindings} =
+      {:ok, stdout, _stderr, _result, _bindings} =
         RLM.Eval.eval(
           ~s[
 job_id = lm_query("subtask")
@@ -137,7 +141,7 @@ except Exception as exc:
     end
 
     test "sampled terminal jobs can be assessed" do
-      {:ok, stdout, _result, _bindings} =
+      {:ok, stdout, _stderr, _result, _bindings} =
         RLM.Eval.eval(
           ~s[
 job_id = lm_query("subtask")
@@ -153,7 +157,7 @@ print(state.get("assessment", {}).get("verdict"))
     end
 
     test "assess_lm_query errors when job has not terminated" do
-      {:ok, stdout, _result, _bindings} =
+      {:ok, stdout, _stderr, _result, _bindings} =
         RLM.Eval.eval(
           ~s[
 job_id = lm_query("slow-subtask")

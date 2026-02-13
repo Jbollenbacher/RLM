@@ -69,7 +69,7 @@ defmodule RLM.Loop do
           tail: config.truncation_tail
         )
 
-      addendum = compaction_addendum(preview)
+      addendum = RLM.Prompt.compaction_addendum(preview)
       new_history = [system_msg, %{role: :user, content: addendum}]
 
       Logger.info(
@@ -111,28 +111,9 @@ defmodule RLM.Loop do
     end
   end
 
-  defp no_code_nudge do
-    """
-    [REPL][AGENT]
-    [No executable Python code block found. Respond with exactly one fenced block in this format:
-    ```python
-    # your code
-    ```
-    Do not use XML/HTML tags (e.g. <python>), tool-call wrappers, or multiple code blocks.
-    Do not use print() to answer the Principal; set `final_answer` instead.]
-    """
-  end
-
-  defp invalid_final_answer_nudge do
-    """
-    [REPL][AGENT]
-    [Invalid final_answer format. Set `final_answer` directly for success (e.g. `final_answer = "done"`), or use `final_answer = fail("reason")` for failure.]
-    """
-  end
-
   defp last_user_nudge?(history) do
     case List.last(history) do
-      %{role: :user, content: content} -> content == no_code_nudge()
+      %{role: :user, content: content} -> content == RLM.Prompt.no_code_nudge()
       _ -> false
     end
   end
@@ -145,27 +126,7 @@ defmodule RLM.Loop do
     end)
   end
 
-  defp compaction_addendum(preview) do
-    """
-    [REPL][AGENT]
-    [Context Window Compacted]
-
-    Your previous conversation history has been compacted to free context space.
-    The full history is available in the variable `compacted_history`.
-    Use Python string operations (slicing, split, regex) and `grep(pattern, compacted_history)` to search it.
-    All other bindings (context, variables you defined, etc.) are preserved unchanged.
-
-    Preview of compacted history:
-    #{preview}
-
-    Continue working on your task. Use list_bindings() to see your current state.
-    """
-  end
-
-  defp normalize_answer(term) when is_binary(term), do: term
-
-  defp normalize_answer(term),
-    do: inspect(term, pretty: true, limit: :infinity, printable_limit: :infinity)
+  defp normalize_answer(term), do: RLM.Helpers.format_value(term)
 
   defp maybe_inject_subagent_return_messages(history, _config, nil), do: history
 
@@ -276,151 +237,193 @@ defmodule RLM.Loop do
           "[RLM] depth=#{depth} iteration=#{iteration} code=#{String.slice(code, 0, 200)}"
         )
 
-        # Add agent message to history
-        clean_response = strip_leading_agent_tags(response)
-        history = history ++ [%{role: :assistant, content: clean_response}]
+        history = append_agent_history(history, response)
 
-        # Eval
-        {status, full_stdout, result, new_bindings} =
-          case RLM.Eval.eval(code, bindings,
-                 timeout: config.eval_timeout,
-                 lm_query_timeout: config.lm_query_timeout,
-                 subagent_assessment_sample_rate: config.subagent_assessment_sample_rate,
-                 agent_id: agent_id,
-                 iteration: iteration
-               ) do
-            {:ok, stdout, result, new_b} -> {:ok, stdout, result, new_b}
-            {:error, stdout, old_b} -> {:error, stdout, nil, old_b}
-          end
+        {status, full_stdout, full_stderr, result, new_bindings} =
+          evaluate_code(code, bindings, config, agent_id, iteration)
 
-        full_stderr = ""
-
-        # Truncate stdout for history
-        truncated_stdout =
-          RLM.Truncate.truncate(full_stdout,
-            head: config.truncation_head,
-            tail: config.truncation_tail
+        {history, new_bindings} =
+          apply_eval_feedback(
+            history,
+            new_bindings,
+            status,
+            result,
+            full_stdout,
+            full_stderr,
+            config
           )
 
-        # Build feedback message
-        final_answer_value = Keyword.get(new_bindings, :final_answer)
-
-        suppress_result? =
-          status == :ok and final_answer_value != nil and result == final_answer_value
-
-        result_for_output = if suppress_result?, do: nil, else: result
-
-        feedback =
-          RLM.Prompt.format_eval_output(truncated_stdout, full_stderr, status, result_for_output)
-
-        history =
-          if suppress_result? and truncated_stdout == "" and full_stderr == "" do
-            history
-          else
-            history ++ [%{role: :user, content: feedback}]
-          end
-
-        # Update history bindings
-        new_bindings =
-          new_bindings
-          |> Keyword.put(:last_stdout, full_stdout)
-          |> Keyword.put(:last_stderr, full_stderr)
-          |> Keyword.put(:last_result, result)
-
-        # Check for final_answer
-        case Keyword.get(new_bindings, :final_answer) do
-          {:ok, answer} ->
-            Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
-
-            finish_iteration(
-              history,
-              new_bindings,
-              config,
-              agent_id,
-              iteration,
-              iteration_started_at,
-              :ok,
-              {:ok, normalize_answer(answer)}
-            )
-
-          {:error, reason} ->
-            finish_iteration(
-              history,
-              new_bindings,
-              config,
-              agent_id,
-              iteration,
-              iteration_started_at,
-              :error,
-              {:error, normalize_answer(reason)}
-            )
-
-          {:invalid, _other} ->
-            Logger.warning(
-              "[RLM] depth=#{depth} iteration=#{iteration} invalid final_answer format; expected a success value or fail(reason)"
-            )
-
-            history = history ++ [%{role: :user, content: invalid_final_answer_nudge()}]
-            new_bindings = Keyword.put(new_bindings, :final_answer, nil)
-            RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
-
-            iterate(
-              history,
-              new_bindings,
-              model,
-              config,
-              depth,
-              iteration + 1,
-              agent_id
-            )
-
-          nil ->
-            RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
-
-            iterate(
-              history,
-              new_bindings,
-              model,
-              config,
-              depth,
-              iteration + 1,
-              agent_id
-            )
-        end
+        continue_after_eval(
+          history,
+          new_bindings,
+          model,
+          config,
+          depth,
+          iteration,
+          agent_id,
+          iteration_started_at
+        )
 
       {:error, :no_code_block} ->
-        # LLM didn't produce code — nudge once, then fail if it happens again.
-        Logger.warning("[RLM] depth=#{depth} iteration=#{iteration} no code block found")
+        handle_no_code_response(
+          response,
+          history,
+          bindings,
+          model,
+          config,
+          depth,
+          iteration,
+          agent_id,
+          iteration_started_at
+        )
+    end
+  end
 
-        if last_user_nudge?(history) do
-          Logger.warning("[RLM] depth=#{depth} repeated no-code response; failing turn")
+  defp append_agent_history(history, response) do
+    clean_response = strip_leading_agent_tags(response)
+    history ++ [%{role: :assistant, content: clean_response}]
+  end
 
-          clean_response = strip_leading_agent_tags(response)
-          history = history ++ [%{role: :assistant, content: clean_response}]
+  defp evaluate_code(code, bindings, config, agent_id, iteration) do
+    case RLM.Eval.eval(code, bindings,
+           timeout: config.eval_timeout,
+           lm_query_timeout: config.lm_query_timeout,
+           subagent_assessment_sample_rate: config.subagent_assessment_sample_rate,
+           agent_id: agent_id,
+           iteration: iteration
+         ) do
+      {:ok, stdout, stderr, result, new_bindings} ->
+        {:ok, stdout, stderr, result, new_bindings}
 
-          finish_iteration(
-            history,
-            bindings,
-            config,
-            agent_id,
-            iteration,
-            iteration_started_at,
-            :error,
-            {:error, "No code block found after retry; set `final_answer` in Python code."}
-          )
-        else
-          clean_response = strip_leading_agent_tags(response)
+      {:error, stdout, stderr, original_bindings} ->
+        {:error, stdout, stderr, nil, original_bindings}
+    end
+  end
 
-          history =
-            history ++
-              [
-                %{role: :assistant, content: clean_response},
-                %{role: :user, content: no_code_nudge()}
-              ]
+  defp apply_eval_feedback(history, bindings, status, result, full_stdout, full_stderr, config) do
+    truncated_stdout =
+      RLM.Truncate.truncate(full_stdout,
+        head: config.truncation_head,
+        tail: config.truncation_tail
+      )
 
-          RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
-          iterate(history, bindings, model, config, depth, iteration + 1, agent_id)
-        end
+    truncated_stderr =
+      RLM.Truncate.truncate(full_stderr,
+        head: config.truncation_head,
+        tail: config.truncation_tail
+      )
+
+    final_answer_value = Keyword.get(bindings, :final_answer)
+
+    suppress_result? =
+      status == :ok and final_answer_value != nil and result == final_answer_value
+
+    result_for_output = if suppress_result?, do: nil, else: result
+
+    feedback =
+      RLM.Prompt.format_eval_output(truncated_stdout, truncated_stderr, status, result_for_output)
+
+    history =
+      if suppress_result? and truncated_stdout == "" and truncated_stderr == "" do
+        history
+      else
+        history ++ [%{role: :user, content: feedback}]
+      end
+
+    bindings =
+      bindings
+      |> Keyword.put(:last_stdout, full_stdout)
+      |> Keyword.put(:last_stderr, full_stderr)
+      |> Keyword.put(:last_result, result)
+
+    {history, bindings}
+  end
+
+  defp continue_after_eval(
+         history,
+         bindings,
+         model,
+         config,
+         depth,
+         iteration,
+         agent_id,
+         iteration_started_at
+       ) do
+    case Keyword.get(bindings, :final_answer) do
+      {:ok, answer} ->
+        Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
+
+        finish_iteration(
+          history,
+          bindings,
+          config,
+          agent_id,
+          iteration,
+          iteration_started_at,
+          :ok,
+          {:ok, normalize_answer(answer)}
+        )
+
+      {:error, reason} ->
+        finish_iteration(
+          history,
+          bindings,
+          config,
+          agent_id,
+          iteration,
+          iteration_started_at,
+          :error,
+          {:error, normalize_answer(reason)}
+        )
+
+      {:invalid, _other} ->
+        Logger.warning(
+          "[RLM] depth=#{depth} iteration=#{iteration} invalid final_answer format; expected a success value or fail(reason)"
+        )
+
+        history = history ++ [%{role: :user, content: RLM.Prompt.invalid_final_answer_nudge()}]
+        bindings = Keyword.put(bindings, :final_answer, nil)
+        RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
+        iterate(history, bindings, model, config, depth, iteration + 1, agent_id)
+
+      nil ->
+        RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
+        iterate(history, bindings, model, config, depth, iteration + 1, agent_id)
+    end
+  end
+
+  defp handle_no_code_response(
+         response,
+         history,
+         bindings,
+         model,
+         config,
+         depth,
+         iteration,
+         agent_id,
+         iteration_started_at
+       ) do
+    Logger.warning("[RLM] depth=#{depth} iteration=#{iteration} no code block found")
+    repeated_no_code? = last_user_nudge?(history)
+    history = append_agent_history(history, response)
+
+    if repeated_no_code? do
+      Logger.warning("[RLM] depth=#{depth} repeated no-code response; failing turn")
+
+      finish_iteration(
+        history,
+        bindings,
+        config,
+        agent_id,
+        iteration,
+        iteration_started_at,
+        :error,
+        {:error, "No code block found after retry; set `final_answer` in Python code."}
+      )
+    else
+      history = history ++ [%{role: :user, content: RLM.Prompt.no_code_nudge()}]
+      RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
+      iterate(history, bindings, model, config, depth, iteration + 1, agent_id)
     end
   end
 

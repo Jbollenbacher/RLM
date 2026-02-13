@@ -4,12 +4,22 @@ defmodule RLM.Prompt do
   [SYSTEM]
   You can only communicate with the Principal by setting `final_answer` in a ```python``` code block. Proceed according to the system prompt.
   """
+  @no_code_nudge """
+  [REPL][AGENT]
+  [No executable Python code block found. Respond with exactly one fenced block in this format:
+  ```python
+  # your code
+  ```
+  Do not use XML/HTML tags (e.g. <python>), tool-call wrappers, or multiple code blocks.
+  Do not use print() to answer the Principal; set `final_answer` instead.]
+  """
+  @invalid_final_answer_nudge """
+  [REPL][AGENT]
+  [Invalid final_answer format. Set `final_answer` directly for success (e.g. `final_answer = "done"`), or use `final_answer = fail("reason")` for failure.]
+  """
 
   @spec system_prompt() :: String.t()
   def system_prompt, do: @system_prompt_text
-
-  @spec system_prompt(keyword()) :: String.t()
-  def system_prompt(_opts), do: @system_prompt_text
 
   @spec initial_user_message(String.t(), keyword()) :: String.t()
   def initial_user_message(context, opts \\ []) do
@@ -58,6 +68,30 @@ defmodule RLM.Prompt do
       [] -> "[REPL][AGENT]\n[No output]"
       _ -> "[REPL][AGENT]\n" <> Enum.join(parts, "\n\n")
     end
+  end
+
+  @spec no_code_nudge() :: String.t()
+  def no_code_nudge, do: @no_code_nudge
+
+  @spec invalid_final_answer_nudge() :: String.t()
+  def invalid_final_answer_nudge, do: @invalid_final_answer_nudge
+
+  @spec compaction_addendum(String.t()) :: String.t()
+  def compaction_addendum(preview) do
+    """
+    [REPL][AGENT]
+    [Context Window Compacted]
+
+    Your previous conversation history has been compacted to free context space.
+    The full history is available in the variable `compacted_history`.
+    Use Python string operations (slicing, split, regex) and `grep(pattern, compacted_history)` to search it.
+    All other bindings (context, variables you defined, etc.) are preserved unchanged.
+
+    Preview of compacted history:
+    #{preview}
+
+    Continue working on your task. Use list_bindings() to see your current state.
+    """
   end
 
   defp error_recovery_hints(stdout, stderr) do

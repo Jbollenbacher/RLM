@@ -246,6 +246,5 @@ defmodule RLM.Observability.Chat do
 
   defp normalize(content) when is_binary(content), do: content
 
-  defp normalize(content),
-    do: inspect(content, pretty: true, limit: :infinity, printable_limit: :infinity)
+  defp normalize(content), do: RLM.Helpers.format_value(content)
 end

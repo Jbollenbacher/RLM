@@ -3,6 +3,8 @@ defmodule RLM.Subagent.Broker do
 
   use GenServer
 
+  @default_max_jobs_per_parent 2_000
+
   @type parent_id :: String.t()
   @type child_id :: String.t()
 
@@ -64,33 +66,23 @@ defmodule RLM.Subagent.Broker do
     lm_opts = Keyword.put(lm_opts, :child_agent_id, child_id)
     assessment_sampled = Keyword.get(opts, :assessment_sampled, false)
 
-    case Process.whereis(@name) do
-      nil ->
-        {:error, "Subagent broker is not running"}
-
-      _ ->
-        GenServer.call(
-          @name,
-          {:dispatch, parent_id, child_id, text, lm_opts, lm_query_fn, timeout_ms,
-           assessment_sampled}
-        )
-    end
+    call_if_running(fn ->
+      GenServer.call(
+        @name,
+        {:dispatch, parent_id, child_id, text, lm_opts, lm_query_fn, timeout_ms,
+         assessment_sampled}
+      )
+    end)
   end
 
   @spec poll(parent_id(), child_id()) :: {:ok, poll_state()} | {:error, String.t()}
   def poll(parent_id, child_id) when is_binary(parent_id) and is_binary(child_id) do
-    case Process.whereis(@name) do
-      nil -> {:error, "Subagent broker is not running"}
-      _ -> GenServer.call(@name, {:poll, parent_id, child_id})
-    end
+    call_if_running(fn -> GenServer.call(@name, {:poll, parent_id, child_id}) end)
   end
 
   @spec cancel(parent_id(), child_id()) :: {:ok, poll_state()} | {:error, String.t()}
   def cancel(parent_id, child_id) when is_binary(parent_id) and is_binary(child_id) do
-    case Process.whereis(@name) do
-      nil -> {:error, "Subagent broker is not running"}
-      _ -> GenServer.call(@name, {:cancel, parent_id, child_id})
-    end
+    call_if_running(fn -> GenServer.call(@name, {:cancel, parent_id, child_id}) end)
   end
 
   @spec assess(parent_id(), child_id(), assessment_verdict(), String.t()) ::
@@ -98,39 +90,40 @@ defmodule RLM.Subagent.Broker do
   def assess(parent_id, child_id, verdict, reason \\ "")
       when is_binary(parent_id) and is_binary(child_id) and
              verdict in [:satisfied, :dissatisfied] and is_binary(reason) do
-    case Process.whereis(@name) do
-      nil -> {:error, "Subagent broker is not running"}
-      _ -> GenServer.call(@name, {:assess, parent_id, child_id, verdict, reason})
-    end
+    call_if_running(fn ->
+      GenServer.call(@name, {:assess, parent_id, child_id, verdict, reason})
+    end)
   end
 
   @spec pending_assessments(parent_id()) :: [map()]
   def pending_assessments(parent_id) when is_binary(parent_id) do
-    case Process.whereis(@name) do
-      nil -> []
-      _ -> GenServer.call(@name, {:pending_assessments, parent_id})
-    end
+    call_if_running(fn -> GenServer.call(@name, {:pending_assessments, parent_id}) end, [])
   end
 
   @spec drain_updates(parent_id()) :: [push_update()]
   def drain_updates(parent_id) when is_binary(parent_id) do
-    case Process.whereis(@name) do
-      nil -> []
-      _ -> GenServer.call(@name, {:drain_updates, parent_id})
-    end
+    call_if_running(fn -> GenServer.call(@name, {:drain_updates, parent_id}) end, [])
   end
 
   @spec cancel_all(parent_id()) :: :ok
   def cancel_all(parent_id) when is_binary(parent_id) do
-    case Process.whereis(@name) do
-      nil -> :ok
-      _ -> GenServer.cast(@name, {:cancel_all, parent_id})
-    end
+    cast_if_running(fn -> GenServer.cast(@name, {:cancel_all, parent_id}) end)
   end
 
   @impl true
-  def init(_opts) do
-    {:ok, %{jobs: %{}, by_parent: %{}}}
+  def init(opts) do
+    max_jobs_per_parent =
+      Keyword.get(
+        opts,
+        :max_jobs_per_parent,
+        Application.get_env(
+          :rlm,
+          :subagent_broker_max_jobs_per_parent,
+          @default_max_jobs_per_parent
+        )
+      )
+
+    {:ok, %{jobs: %{}, by_parent: %{}, max_jobs_per_parent: max_jobs_per_parent}}
   end
 
   @impl true
@@ -438,11 +431,13 @@ defmodule RLM.Subagent.Broker do
       |> Map.get(parent_id, MapSet.new())
       |> MapSet.put(child_id)
 
-    %{
+    state = %{
       state
       | jobs: Map.put(state.jobs, key, job),
         by_parent: Map.put(state.by_parent, parent_id, child_set)
     }
+
+    prune_parent_jobs(state, parent_id)
   end
 
   defp delete_parent(state, parent_id) do
@@ -500,6 +495,60 @@ defmodule RLM.Subagent.Broker do
     job.assessment_sampled and job.polled and job.status in [:ok, :error, :cancelled]
   end
 
+  defp prune_parent_jobs(state, parent_id) do
+    child_ids =
+      state.by_parent
+      |> Map.get(parent_id, MapSet.new())
+      |> MapSet.to_list()
+
+    overflow = length(child_ids) - state.max_jobs_per_parent
+
+    if overflow <= 0 do
+      state
+    else
+      evict_ids =
+        child_ids
+        |> Enum.map(fn child_id ->
+          {child_id, Map.get(state.jobs, {parent_id, child_id})}
+        end)
+        |> Enum.reject(fn {_child_id, job} -> is_nil(job) end)
+        |> Enum.filter(fn {_child_id, job} -> evictable_job?(job) end)
+        |> Enum.sort_by(fn {_child_id, job} -> {job.updated_at || 0, job.inserted_at || 0} end)
+        |> Enum.take(overflow)
+        |> Enum.map(&elem(&1, 0))
+
+      Enum.reduce(evict_ids, state, fn child_id, acc ->
+        delete_job(acc, parent_id, child_id)
+      end)
+    end
+  end
+
+  defp delete_job(state, parent_id, child_id) do
+    key = {parent_id, child_id}
+    jobs = Map.delete(state.jobs, key)
+
+    by_parent =
+      state.by_parent
+      |> Map.get(parent_id, MapSet.new())
+      |> MapSet.delete(child_id)
+      |> case do
+        set ->
+          if MapSet.size(set) == 0 do
+            Map.delete(state.by_parent, parent_id)
+          else
+            Map.put(state.by_parent, parent_id, set)
+          end
+      end
+
+    %{state | jobs: jobs, by_parent: by_parent}
+  end
+
+  defp evictable_job?(job) do
+    job.status in [:ok, :error, :cancelled] and
+      job.completion_notified and
+      (not assessment_required?(job) or not is_nil(job.assessment))
+  end
+
   defp build_push_update(job, opts) do
     %{
       child_agent_id: job.child_id,
@@ -511,5 +560,13 @@ defmodule RLM.Subagent.Broker do
       completion_update: Keyword.get(opts, :completion_update, false),
       assessment_update: Keyword.get(opts, :assessment_update, false)
     }
+  end
+
+  defp call_if_running(fun, fallback \\ {:error, "Subagent broker is not running"}) do
+    if Process.whereis(@name), do: fun.(), else: fallback
+  end
+
+  defp cast_if_running(fun) do
+    if Process.whereis(@name), do: fun.(), else: :ok
   end
 end
