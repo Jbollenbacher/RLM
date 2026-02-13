@@ -28,6 +28,9 @@ cp .env.example .env  # then edit .env
 
 # Run tests
 mix test
+
+# Run live-model integration tests
+RLM_RUN_INTEGRATION=1 mix test
 ```
 
 ## CLI

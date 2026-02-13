@@ -1,6 +1,7 @@
 defmodule RLM.RecursionTest do
   use ExUnit.Case
 
+  @moduletag :integration
   # These tests involve recursive LLM calls and can take a while
   @moduletag timeout: 600_000
 

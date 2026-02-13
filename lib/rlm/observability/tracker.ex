@@ -79,6 +79,9 @@ defmodule RLM.Observability.Tracker do
       String.starts_with?(content, "[REPL][AGENT]") ->
         {"REPL", strip_tag(content, "[REPL][AGENT]")}
 
+      String.starts_with?(content, "[SYSTEM]") ->
+        {"SYSTEM", strip_tag(content, "[SYSTEM]")}
+
       String.starts_with?(content, "[PRINCIPAL]") ->
         {"PRINCIPAL", strip_tag(content, "[PRINCIPAL]")}
 

@@ -4,6 +4,7 @@ defmodule RLM.LoopTest do
   @moduletag timeout: 300_000
 
   describe "spec test 3: basic loop" do
+    @tag :integration
     test "answers 'What is 2 + 2?' correctly" do
       result = RLM.run("unused", "What is 2 + 2?")
       assert {:ok, answer} = result
@@ -12,6 +13,7 @@ defmodule RLM.LoopTest do
   end
 
   describe "spec test 4: context access" do
+    @tag :integration
     test "finds a secret token in 50K chars" do
       # Build a 50K string with SECRET_42 on its own line among random lines
       lines = for i <- 1..500, do: "line #{i}: #{String.duplicate("abcdefghij", 10)}"
@@ -30,6 +32,7 @@ defmodule RLM.LoopTest do
   end
 
   describe "spec test 5: truncation" do
+    @tag :integration
     test "truncation works in the loop" do
       result =
         RLM.run(
@@ -43,6 +46,7 @@ defmodule RLM.LoopTest do
   end
 
   describe "spec test 6: error recovery" do
+    @tag :integration
     test "model recovers from an error" do
       result =
         RLM.run(

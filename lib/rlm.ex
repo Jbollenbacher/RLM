@@ -17,12 +17,9 @@ defmodule RLM do
   end
 
   def run(context, query, opts \\ []) do
-    case {Keyword.get(opts, :session_id), Keyword.get(opts, :session_pid)} do
-      {session_id, _} when is_binary(session_id) ->
+    case Keyword.get(opts, :session_id) do
+      session_id when is_binary(session_id) ->
         RLM.Sessions.ask(session_id, query)
-
-      {_, pid} when is_pid(pid) ->
-        RLM.SessionServer.ask(pid, query)
 
       _ ->
         agent_id = Keyword.get(opts, :agent_id, RLM.Helpers.unique_id("agent"))

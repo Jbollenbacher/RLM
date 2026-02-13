@@ -1,6 +1,7 @@
 defmodule RLM.SessionServerTest do
   use ExUnit.Case
   alias RLM.Session
+  @moduletag :integration
   @moduletag :capture_log
   test "starts a session and maintains state across calls" do
     {:ok, session_id} = RLM.start_session("You are a memory test assistant.", [])
