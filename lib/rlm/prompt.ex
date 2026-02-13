@@ -30,7 +30,7 @@ defmodule RLM.Prompt do
       end
 
     how_to_respond_note =
-      "[SYSTEM]\nYou can only communuicate with the Principal by setting `final_answer` in an ```elixer codeblock. Proceed according to the system propmt."
+      "[SYSTEM]\nYou can only communicate with the Principal by setting `final_answer` in a ```python``` code block. Proceed according to the system prompt."
 
     "#{workspace_note}[PRINCIPAL]\n#{preview_text}\n\n#{how_to_respond_note}"
   end

@@ -44,12 +44,12 @@ defmodule RLM.LLM do
 
   @spec extract_code(term()) :: {:ok, String.t()} | {:error, :no_code_block}
   def extract_code(response) when is_binary(response) do
-    elixir = Regex.scan(~r/```[Ee]lixir\s*\n(.*?)```/s, response)
+    python = Regex.scan(~r/```(?:[Pp]ython|[Pp]y)\s*\n(.*?)```/s, response)
     plain = Regex.scan(~r/```\s*\n(.*?)```/s, response)
 
     cond do
-      elixir != [] ->
-        {:ok, elixir |> List.last() |> Enum.at(1) |> String.trim()}
+      python != [] ->
+        {:ok, python |> List.last() |> Enum.at(1) |> String.trim()}
 
       plain != [] ->
         {:ok, plain |> List.last() |> Enum.at(1) |> String.trim()}

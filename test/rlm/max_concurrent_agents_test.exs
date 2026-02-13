@@ -12,8 +12,8 @@ defmodule RLM.MaxConcurrentAgentsTest do
 
     post "/chat/completions" do
       response = """
-      ```elixir
-      final_answer = lm_query("subagent task", model_size: :small)
+      ```python
+      final_answer = lm_query("subagent task", model_size="small")
       ```
       """
 

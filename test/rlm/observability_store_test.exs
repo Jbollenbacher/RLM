@@ -68,6 +68,36 @@ defmodule RLM.ObservabilityStoreTest do
     assert String.ends_with?(snapshot.transcript, String.duplicate("a", 20))
   end
 
+  test "snapshot preserves leading system blocks from user messages" do
+    Store.put_agent(%{id: "agent_d"})
+
+    config =
+      RLM.Config.load(
+        truncation_head: 5,
+        truncation_tail: 5,
+        obs_max_context_window_chars: 10_000
+      )
+
+    content = """
+    [SYSTEM]
+    Workspace access is read-write.
+
+    [PRINCIPAL]
+    Hello! can you tell me about that book?
+    """
+
+    RLM.Observability.Tracker.snapshot_context(
+      "agent_d",
+      0,
+      [%{role: :user, content: content}],
+      config
+    )
+
+    snapshot = Store.latest_snapshot("agent_d")
+    assert String.starts_with?(snapshot.transcript, "[SYSTEM]\nWorkspace access is read-write.")
+    refute String.starts_with?(snapshot.transcript, "[PRINCIPAL]\n[SYSTEM]")
+  end
+
   test "agent eviction removes events and snapshots" do
     Store.put_agent(%{id: "agent_1"})
     Store.add_event(%{agent_id: "agent_1", type: :a, payload: %{}})
