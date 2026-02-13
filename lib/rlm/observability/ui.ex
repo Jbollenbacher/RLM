@@ -154,6 +154,12 @@ defmodule RLM.Observability.UI do
             justify-content: space-between;
             gap: 8px;
           }
+          .context-controls {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+          }
           .toggle {
             font-size: 12px;
             color: var(--muted);
@@ -164,6 +170,26 @@ defmodule RLM.Observability.UI do
           }
           .toggle input {
             accent-color: var(--accent);
+          }
+          #copy-context {
+            padding: 4px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(107, 220, 255, 0.12);
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+          }
+          #copy-context:hover {
+            background: rgba(107, 220, 255, 0.2);
+          }
+          #context-copy-status {
+            min-width: 70px;
+            font-size: 12px;
+            color: var(--muted);
+          }
+          #context-copy-status.error {
+            color: var(--danger);
           }
           #agents {
             overflow: auto;
@@ -387,10 +413,14 @@ defmodule RLM.Observability.UI do
             <section id="obs-context-panel" class="panel">
               <div class="panel-header">
                 <h2>Context Window</h2>
-                <label class="toggle">
-                  <input type="checkbox" id="toggle-system" />
-                  Show system prompt
-                </label>
+                <div class="context-controls">
+                  <label class="toggle">
+                    <input type="checkbox" id="toggle-system" />
+                    Show system prompt
+                  </label>
+                  <button id="copy-context" type="button">Copy Context</button>
+                  <span id="context-copy-status" aria-live="polite"></span>
+                </div>
               </div>
               <div id="context" class="muted">Select an agent to view context.</div>
             </section>
@@ -940,12 +970,56 @@ defmodule RLM.Observability.UI do
             setTimeout(loop, 1000);
           }
 
+          let copyStatusTimeout = null;
+
+          function setCopyStatus(message, isError = false) {
+            const el = document.getElementById("context-copy-status");
+            if (!el) return;
+
+            el.textContent = message;
+            el.className = isError ? "error" : "";
+
+            if (copyStatusTimeout) {
+              clearTimeout(copyStatusTimeout);
+            }
+
+            copyStatusTimeout = setTimeout(() => {
+              el.textContent = "";
+              el.className = "";
+              copyStatusTimeout = null;
+            }, 1500);
+          }
+
+          async function copyContextToClipboard() {
+            const contextEl = document.getElementById("context");
+            const text = (contextEl && contextEl.textContent ? contextEl.textContent : "").trim();
+
+            if (!text || text === "Select an agent to view context." || text === "No context yet.") {
+              setCopyStatus("Nothing to copy", true);
+              return;
+            }
+
+            try {
+              await navigator.clipboard.writeText(text);
+              setCopyStatus("Copied");
+            } catch (_error) {
+              setCopyStatus("Copy failed", true);
+            }
+          }
+
           const systemToggle = document.getElementById("toggle-system");
           if (systemToggle) {
             systemToggle.addEventListener("change", () => {
               state.showSystem = systemToggle.checked;
               state.lastSnapshotId = 0;
               loadContext(true);
+            });
+          }
+
+          const copyContextButton = document.getElementById("copy-context");
+          if (copyContextButton) {
+            copyContextButton.addEventListener("click", () => {
+              copyContextToClipboard();
             });
           }
 
