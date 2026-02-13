@@ -83,7 +83,9 @@ defmodule RLM.EvalTest do
   describe "lm_query crash fallback" do
     test "preserves specific lm_query errors as return values" do
       {:ok, stdout, _result, _bindings} =
-        RLM.Eval.eval(~s[print(lm_query("subtask"))], lm_query: fn _text, _opts -> {:error, "boom"} end)
+        RLM.Eval.eval(~s[print(lm_query_status("subtask"))],
+          lm_query: fn _text, _opts -> {:error, "boom"} end
+        )
 
       assert stdout =~ "boom"
     end

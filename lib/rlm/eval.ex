@@ -1,12 +1,13 @@
 defmodule RLM.Eval do
   @python_prelude File.read!(Path.join(:code.priv_dir(:rlm), "python_prelude.py"))
-  @default_lm_query_timeout_ms 30_000
+  @default_eval_timeout_ms 30_000
 
   @spec eval(String.t(), keyword(), keyword()) ::
           {:ok, String.t(), any(), keyword()}
           | {:error, String.t(), keyword()}
   def eval(code, bindings, opts \\ []) do
-    timeout = Keyword.get(opts, :timeout, 30_000)
+    timeout = Keyword.get(opts, :timeout, default_eval_timeout_ms())
+    lm_query_timeout = Keyword.get(opts, :lm_query_timeout, default_lm_query_timeout_ms())
     agent_id = Keyword.get(opts, :agent_id)
     iteration = Keyword.get(opts, :iteration)
 
@@ -14,20 +15,20 @@ defmodule RLM.Eval do
       :eval,
       %{agent_id: agent_id, iteration: iteration},
       fn ->
-        do_eval(code, bindings, timeout)
+        do_eval(code, bindings, timeout, lm_query_timeout)
       end,
       &eval_status/1
     )
   end
 
-  defp do_eval(code, bindings, timeout) do
+  defp do_eval(code, bindings, timeout, lm_query_timeout) do
     {:ok, stdout_device} = StringIO.open("")
     {:ok, stderr_device} = StringIO.open("")
     caller = self()
 
     pid =
       spawn(fn ->
-        bridge = start_lm_query_bridge(bindings, timeout)
+        bridge = start_lm_query_bridge(bindings, lm_query_timeout)
 
         try do
           with :ok <- ensure_pythonx_runtime() do
@@ -122,7 +123,7 @@ defmodule RLM.Eval do
     |> Map.merge(bridge_globals)
   end
 
-  defp start_lm_query_bridge(bindings, timeout) do
+  defp start_lm_query_bridge(bindings, lm_query_timeout) do
     case Keyword.get(bindings, :lm_query) do
       lm_query_fn when is_function(lm_query_fn, 2) ->
         base_dir = Path.join(System.tmp_dir!(), RLM.Helpers.unique_id("rlm_python_bridge"))
@@ -131,8 +132,12 @@ defmodule RLM.Eval do
         File.mkdir_p!(requests_dir)
         File.mkdir_p!(responses_dir)
 
-        pid = spawn_link(fn -> bridge_loop(requests_dir, responses_dir, lm_query_fn) end)
-        %{pid: pid, dir: base_dir, timeout_ms: timeout}
+        pid =
+          spawn_link(fn ->
+            bridge_loop(requests_dir, responses_dir, lm_query_fn, lm_query_timeout)
+          end)
+
+        %{pid: pid, dir: base_dir, timeout_ms: lm_query_timeout}
 
       _ ->
         nil
@@ -170,7 +175,7 @@ defmodule RLM.Eval do
     :ok
   end
 
-  defp bridge_loop(requests_dir, responses_dir, lm_query_fn) do
+  defp bridge_loop(requests_dir, responses_dir, lm_query_fn, default_timeout_ms) do
     receive do
       {:stop, caller} ->
         send(caller, {:bridge_stopped, self()})
@@ -180,12 +185,12 @@ defmodule RLM.Eval do
         :ok
     after
       15 ->
-        process_requests(requests_dir, responses_dir, lm_query_fn)
-        bridge_loop(requests_dir, responses_dir, lm_query_fn)
+        process_requests(requests_dir, responses_dir, lm_query_fn, default_timeout_ms)
+        bridge_loop(requests_dir, responses_dir, lm_query_fn, default_timeout_ms)
     end
   end
 
-  defp process_requests(requests_dir, responses_dir, lm_query_fn) do
+  defp process_requests(requests_dir, responses_dir, lm_query_fn, default_timeout_ms) do
     case File.ls(requests_dir) do
       {:ok, entries} ->
         entries
@@ -196,7 +201,7 @@ defmodule RLM.Eval do
 
           with {:ok, raw} <- File.read(request_path),
                {:ok, payload} <- Jason.decode(raw) do
-            result = handle_lm_query_request(payload, lm_query_fn)
+            result = handle_lm_query_request(payload, lm_query_fn, default_timeout_ms)
             _ = write_json_atomic(response_path, result)
             _ = File.rm(request_path)
           end
@@ -207,9 +212,13 @@ defmodule RLM.Eval do
     end
   end
 
-  defp handle_lm_query_request(%{"text" => text, "model_size" => model_size} = payload, lm_query_fn)
+  defp handle_lm_query_request(
+         %{"text" => text, "model_size" => model_size} = payload,
+         lm_query_fn,
+         default_timeout_ms
+       )
        when is_binary(text) do
-    timeout_ms = parse_timeout_ms(Map.get(payload, "timeout_ms"))
+    timeout_ms = parse_timeout_ms(Map.get(payload, "timeout_ms"), default_timeout_ms)
     opts = [model_size: parse_model_size(model_size)]
 
     case RLM.Subagent.Call.execute(lm_query_fn, text, opts, timeout_ms: timeout_ms) do
@@ -227,7 +236,7 @@ defmodule RLM.Eval do
       %{"status" => "error", "payload" => Exception.message(e)}
   end
 
-  defp handle_lm_query_request(_payload, _lm_query_fn) do
+  defp handle_lm_query_request(_payload, _lm_query_fn, _default_timeout_ms) do
     %{"status" => "error", "payload" => "Malformed lm_query request"}
   end
 
@@ -260,16 +269,20 @@ defmodule RLM.Eval do
 
   defp parse_model_size(_), do: :small
 
-  defp parse_timeout_ms(timeout) when is_integer(timeout) and timeout > 0, do: timeout
+  defp parse_timeout_ms(timeout, _default_timeout_ms) when is_integer(timeout) and timeout > 0,
+    do: timeout
 
-  defp parse_timeout_ms(timeout) when is_binary(timeout) do
+  defp parse_timeout_ms(timeout, default_timeout_ms) when is_binary(timeout) do
     case Integer.parse(timeout) do
       {value, _} when value > 0 -> value
-      _ -> @default_lm_query_timeout_ms
+      _ -> normalize_timeout(default_timeout_ms)
     end
   end
 
-  defp parse_timeout_ms(_timeout), do: @default_lm_query_timeout_ms
+  defp parse_timeout_ms(_timeout, default_timeout_ms), do: normalize_timeout(default_timeout_ms)
+
+  defp normalize_timeout(timeout) when is_integer(timeout) and timeout > 0, do: timeout
+  defp normalize_timeout(_timeout), do: default_lm_query_timeout_ms()
 
   defp json_term(value)
        when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
@@ -305,10 +318,24 @@ defmodule RLM.Eval do
   defp normalize_final_answer([status, payload]), do: normalize_final_answer({status, payload})
 
   defp normalize_final_answer(%{"status" => status, "payload" => payload}) do
-    normalize_final_answer({status, payload})
+    normalize_status_payload(status, payload)
   end
 
-  defp normalize_final_answer(other), do: {:invalid, other}
+  defp normalize_final_answer(%{status: status, payload: payload}) do
+    normalize_status_payload(status, payload)
+  end
+
+  defp normalize_final_answer(%{"ok" => answer}), do: {:ok, answer}
+  defp normalize_final_answer(%{ok: answer}), do: {:ok, answer}
+  defp normalize_final_answer(%{"error" => reason}), do: {:error, reason}
+  defp normalize_final_answer(%{error: reason}), do: {:error, reason}
+
+  # Pythonic default: assigning any non-nil value to final_answer means success.
+  defp normalize_final_answer(other), do: {:ok, other}
+
+  defp normalize_status_payload(status, payload) when status in ["ok", :ok], do: {:ok, payload}
+  defp normalize_status_payload(status, payload) when status in ["error", :error], do: {:error, payload}
+  defp normalize_status_payload(status, payload), do: {:invalid, %{status: status, payload: payload}}
 
   defp ensure_pythonx_runtime do
     case Application.ensure_all_started(:pythonx) do
@@ -378,6 +405,14 @@ defmodule RLM.Eval do
     |> String.replace_prefix("Python exception raised\n\n", "")
     |> String.replace(~r/^ {8}/m, "")
     |> String.trim_trailing()
+  end
+
+  defp default_eval_timeout_ms do
+    Application.get_env(:rlm, :eval_timeout, @default_eval_timeout_ms)
+  end
+
+  defp default_lm_query_timeout_ms do
+    Application.get_env(:rlm, :lm_query_timeout, default_eval_timeout_ms())
   end
 
   defp python_prelude, do: @python_prelude

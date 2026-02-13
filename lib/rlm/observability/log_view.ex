@@ -5,6 +5,8 @@ defmodule RLM.Observability.LogView do
                         :agent_start,
                         :agent_end,
                         :agent_status,
+                        :llm,
+                        :eval,
                         :lm_query,
                         :compaction,
                         :principal_interrupt

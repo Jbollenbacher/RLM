@@ -169,7 +169,7 @@ defmodule RLM.ObservabilityRouterTest do
     body = Jason.decode!(conn.resp_body)
     assert body["log_view"] == "normal"
     types = Enum.map(body["events"], & &1["type"])
-    refute "llm" in types
+    assert "llm" in types
     assert "iteration" in types
     assert "agent_end" in types
   end

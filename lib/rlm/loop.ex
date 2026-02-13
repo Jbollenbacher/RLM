@@ -113,14 +113,19 @@ defmodule RLM.Loop do
   defp no_code_nudge do
     """
     [REPL][AGENT]
-    [No code block found. Respond with exactly one ```python``` code block. Do not use print() to answer; set final_answer instead.]
+    [No executable Python code block found. Respond with exactly one fenced block in this format:
+    ```python
+    # your code
+    ```
+    Do not use XML/HTML tags (e.g. <python>), tool-call wrappers, or multiple code blocks.
+    Do not use print() to answer the Principal; set `final_answer` instead.]
     """
   end
 
   defp invalid_final_answer_nudge do
     """
     [REPL][AGENT]
-    [Invalid final_answer format. Set `final_answer` to a 2-tuple like ("ok", answer) or ("error", reason).]
+    [Invalid final_answer format. Set `final_answer` directly for success (e.g. `final_answer = "done"`), or use `final_answer = fail("reason")` for failure.]
     """
   end
 
@@ -213,6 +218,7 @@ defmodule RLM.Loop do
         {status, full_stdout, result, new_bindings} =
           case RLM.Eval.eval(code, bindings,
                  timeout: config.eval_timeout,
+                 lm_query_timeout: config.lm_query_timeout,
                  agent_id: agent_id,
                  iteration: iteration
                ) do
@@ -258,6 +264,7 @@ defmodule RLM.Loop do
         case Keyword.get(new_bindings, :final_answer) do
           {:ok, answer} ->
             Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
+
             finish_iteration(
               history,
               new_bindings,
@@ -283,7 +290,7 @@ defmodule RLM.Loop do
 
           {:invalid, _other} ->
             Logger.warning(
-              "[RLM] depth=#{depth} iteration=#{iteration} invalid final_answer format; expected ('ok'|'error', payload)"
+              "[RLM] depth=#{depth} iteration=#{iteration} invalid final_answer format; expected a success value or fail(reason)"
             )
 
             history = history ++ [%{role: :user, content: invalid_final_answer_nudge()}]

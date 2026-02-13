@@ -189,11 +189,23 @@ defmodule RLM.Observability.UI do
             font-size: 12px;
             cursor: pointer;
           }
+          #preview-logs {
+            padding: 4px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(255, 214, 130, 0.12);
+            color: var(--text);
+            font-size: 12px;
+            cursor: pointer;
+          }
           #copy-context:hover {
             background: rgba(107, 220, 255, 0.2);
           }
           #export-logs:hover {
             background: rgba(146, 255, 184, 0.2);
+          }
+          #preview-logs:hover {
+            background: rgba(255, 214, 130, 0.2);
           }
           #context-copy-status {
             min-width: 70px;
@@ -209,6 +221,14 @@ defmodule RLM.Observability.UI do
             color: var(--muted);
           }
           #context-export-status.error {
+            color: var(--danger);
+          }
+          #context-preview-status {
+            min-width: 70px;
+            font-size: 12px;
+            color: var(--muted);
+          }
+          #context-preview-status.error {
             color: var(--danger);
           }
           #agents {
@@ -264,6 +284,18 @@ defmodule RLM.Observability.UI do
             font-family: var(--mono);
             font-size: 12px;
             white-space: pre-wrap;
+            overflow: auto;
+          }
+          #full-logs-preview {
+            margin-top: 10px;
+            flex: 0 0 260px;
+            background: #0b0f18;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 12px;
+            font-family: var(--mono);
+            font-size: 11px;
+            white-space: pre;
             overflow: auto;
           }
           #events {
@@ -444,11 +476,14 @@ defmodule RLM.Observability.UI do
                   </label>
                   <button id="copy-context" type="button">Copy Context</button>
                   <span id="context-copy-status" aria-live="polite"></span>
+                  <button id="preview-logs" type="button">Show Full Agent Logs</button>
+                  <span id="context-preview-status" aria-live="polite"></span>
                   <button id="export-logs" type="button">Export Full Agent Logs</button>
                   <span id="context-export-status" aria-live="polite"></span>
                 </div>
               </div>
               <div id="context" class="muted">Select an agent to view context.</div>
+              <pre id="full-logs-preview" class="muted" hidden>Click "Show Full Agent Logs" to preview export JSON.</pre>
             </section>
             <div id="obs-column-splitter" role="separator" aria-orientation="vertical" aria-label="Resize observability panels"></div>
             <section id="obs-side-stack">
@@ -473,6 +508,7 @@ defmodule RLM.Observability.UI do
             lastSnapshotId: 0,
             showSystem: false,
             debugLogs: false,
+            fullLogsVisible: false,
             expandedAgents: new Set(),
             chatSessionId: null,
             chatLastMessageId: 0,
@@ -812,6 +848,7 @@ defmodule RLM.Observability.UI do
             div.appendChild(toggle);
             div.appendChild(label);
             div.onclick = () => {
+              exitFullLogsPreview();
               state.selectedAgent = node.id;
               state.lastEventTs = 0;
               state.lastEventId = 0;
@@ -1075,6 +1112,60 @@ defmodule RLM.Observability.UI do
             }
           }
 
+          function setPreviewButtonLabel() {
+            const previewLogsButton = document.getElementById("preview-logs");
+            if (!previewLogsButton) return;
+            previewLogsButton.textContent = state.fullLogsVisible ? "Refresh Logs" : "Show Full Agent Logs";
+          }
+
+          function setFullLogsPreviewVisible(visible) {
+            const contextEl = document.getElementById("context");
+            const previewEl = document.getElementById("full-logs-preview");
+
+            state.fullLogsVisible = visible;
+
+            if (contextEl) {
+              contextEl.hidden = visible;
+            }
+
+            if (previewEl) {
+              previewEl.hidden = !visible;
+            }
+
+            setPreviewButtonLabel();
+          }
+
+          function exitFullLogsPreview() {
+            if (!state.fullLogsVisible) return;
+            setFullLogsPreviewVisible(false);
+          }
+
+          async function loadFullLogsPreview() {
+            const includeSystem = state.showSystem ? "1" : "0";
+            const debug = state.debugLogs ? "1" : "0";
+            const previewEl = document.getElementById("full-logs-preview");
+
+            if (!previewEl) return;
+
+            try {
+              const response = await fetch(
+                `/api/export/full_logs?include_system=${includeSystem}&debug=${debug}`
+              );
+
+              if (!response.ok) {
+                throw new Error(`Preview failed (${response.status})`);
+              }
+
+              const text = await response.text();
+              previewEl.textContent = text;
+              previewEl.classList.remove("muted");
+              setFullLogsPreviewVisible(true);
+              setTransientStatus("context-preview-status", "Loaded");
+            } catch (error) {
+              setTransientStatus("context-preview-status", error.message || "Preview failed", true);
+            }
+          }
+
           const systemToggle = document.getElementById("toggle-system");
           if (systemToggle) {
             systemToggle.addEventListener("change", () => {
@@ -1102,6 +1193,14 @@ defmodule RLM.Observability.UI do
           if (copyContextButton) {
             copyContextButton.addEventListener("click", () => {
               copyContextToClipboard();
+            });
+          }
+
+          const previewLogsButton = document.getElementById("preview-logs");
+          if (previewLogsButton) {
+            setPreviewButtonLabel();
+            previewLogsButton.addEventListener("click", () => {
+              loadFullLogsPreview();
             });
           }
 

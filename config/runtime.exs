@@ -56,3 +56,7 @@ end
 if eval_timeout = System.get_env("RLM_EVAL_TIMEOUT") do
   config :rlm, eval_timeout: String.to_integer(eval_timeout)
 end
+
+if lm_query_timeout = System.get_env("RLM_LM_QUERY_TIMEOUT") do
+  config :rlm, lm_query_timeout: String.to_integer(lm_query_timeout)
+end

@@ -20,8 +20,14 @@ defmodule RLM.Subagent.Call do
 
     {pid, monitor_ref} =
       spawn_monitor(fn ->
-        result = lm_query_fn.(text, lm_opts)
-        send(parent, {:subagent_result, result_ref, result})
+        watchdog = start_parent_watchdog(parent, self())
+
+        try do
+          result = lm_query_fn.(text, lm_opts)
+          send(parent, {:subagent_result, result_ref, result})
+        after
+          stop_parent_watchdog(watchdog)
+        end
       end)
 
     receive do
@@ -113,5 +119,30 @@ defmodule RLM.Subagent.Call do
     else
       :error
     end
+  end
+
+  defp start_parent_watchdog(parent_pid, target_pid)
+       when is_pid(parent_pid) and is_pid(target_pid) do
+    spawn(fn ->
+      ref = Process.monitor(parent_pid)
+
+      receive do
+        :stop ->
+          Process.demonitor(ref, [:flush])
+          :ok
+
+        {:DOWN, ^ref, :process, ^parent_pid, _reason} ->
+          if Process.alive?(target_pid) do
+            Process.exit(target_pid, :kill)
+          end
+
+          :ok
+      end
+    end)
+  end
+
+  defp stop_parent_watchdog(pid) when is_pid(pid) do
+    send(pid, :stop)
+    :ok
   end
 end

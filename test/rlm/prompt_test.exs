@@ -28,5 +28,26 @@ defmodule RLM.PromptTest do
 
       refute output =~ "truncated"
     end
+
+    test "adds actionable rollback hint on eval errors" do
+      output = RLM.Prompt.format_eval_output("Traceback...", "", :error, nil)
+
+      assert output =~ "Bindings unchanged"
+      assert output =~ "Variables assigned in this failed step were not persisted"
+      assert output =~ "Use list_bindings()"
+    end
+
+    test "adds undefined-name hint when NameError is detected" do
+      stdout = """
+      Traceback (most recent call last):
+        File \"<string>\", line 317, in <module>
+      NameError: name 'major_sections' is not defined
+      """
+
+      output = RLM.Prompt.format_eval_output(stdout, "", :error, nil)
+
+      assert output =~ "`major_sections` is undefined"
+      assert output =~ "\"major_sections\" in globals()"
+    end
   end
 end

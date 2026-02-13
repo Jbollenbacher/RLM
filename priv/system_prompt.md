@@ -51,11 +51,15 @@ The REPL is initialized with these bindings:
 
 - `context` — the entire principal prompt as a string. It may include a chat transcript, long documents, or references to workspace files. You must explore it through code.
 - `lm_query(text, model_size="small" | "large")` — invoke a sub-LLM on `text`.
-  Returns `("ok", response)` or `("error", reason)`.
+  Returns the subagent response payload directly, or raises on failure.
+  `lm_query` is synchronous: each call blocks until that subagent finishes.
+  If you need explicit status branching, use `lm_query_status(...)` which returns `("ok", payload)` or `("error", reason)`.
   - `"small"` — scanning, extraction, formatting, local reasoning.
   - `"large"` — complex reasoning or synthesis only.
   Sub-models receive the same prompt and constraints as you.
 - `final_answer` — initially `None`. Set to terminate (see [Termination](#termination)).
+  - Any non-`None` value is treated as success.
+  - For explicit failure, use `final_answer = fail(<reason>)`.
 
 **Automatic history bindings** are populated at the start of each turn with results from your previous execution: `last_stdout` (full untruncated stdout), `last_stderr` (full untruncated stderr), `last_result` (return value). To preserve data across multiple turns, assign it to a named variable (e.g., `analysis_v1 = last_stdout`).
 
@@ -63,7 +67,8 @@ The REPL is initialized with these bindings:
 
 - `grep(pattern, string)` — return `(line_number, line)` tuples for substring/regex matches.
 - `list_bindings()` — `(name, type, byte_size)` tuples for current bindings.
-- `latest_principal_message(context)` — return `("ok", message)` or `("error", reason)` for the most recent `[RLM_Principal]` message.
+- `latest_principal_message(context)` — return the most recent `[RLM_Principal]` message, or raise if missing.
+  If you need explicit status branching, use `latest_principal_message_status(context)`.
 
 Helpers are stateless convenience functions.
 
@@ -106,15 +111,15 @@ Stdout is intentionally lossy and must not be treated as durable storage. Any re
 
 ```python
 # Iteration 1: explore and store
-status_1, summary_1 = lm_query(chunk_1, model_size="small")
-status_2, summary_2 = lm_query(chunk_2, model_size="small")
+summary_1 = lm_query(chunk_1, model_size="small")
+summary_2 = lm_query(chunk_2, model_size="small")
 
 # Iteration 2: aggregate from stored results
-status_3, synthesis = lm_query(
+synthesis = lm_query(
   f"Synthesize:\n{summary_1}\n{summary_2}",
   model_size="large"
 )
-final_answer = ("ok", synthesis)
+final_answer = synthesis
 ```
 
 Print only what helps you decide your next action. Store everything else in variables.
@@ -161,6 +166,8 @@ Delegation may fail. This is expected.
 
 **As a parent model:** when a sub-model fails, diagnose the cause and *reduce* the problem before retrying. Options: re-specify more narrowly, re-chunk the input, escalate from `"small"` to `"large"`, or abandon delegation and synthesize from current state.
 
+Subagent failure is not automatically parent failure. Do not immediately set `final_answer = fail(...)` just because one subagent failed. First try recovery, fallback plans, or partial synthesis from successful evidence.
+
 Never re-delegate the same task without reduction. Failure that produces insight is progress. Repetition is not.
 
 ---
@@ -176,9 +183,9 @@ If your code errors, bindings are unchanged and the error appears in stdout. Ins
 When — and only when — you are confident the task is complete or failed:
 
 ```python
-final_answer = ("ok", <your answer>)
+final_answer = <your answer>
 # or
-final_answer = ("error", <reason>)
+final_answer = fail(<reason>)
 ```
 
 This is an irreversible commit. Until then, continue.

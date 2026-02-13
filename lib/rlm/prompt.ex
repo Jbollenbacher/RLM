@@ -29,7 +29,11 @@ defmodule RLM.Prompt do
 
     parts =
       if status == :error,
-        do: parts ++ ["[Execution failed. Bindings unchanged.]"],
+        do:
+          parts ++
+            [
+              "[Execution failed. Bindings unchanged. Variables assigned in this failed step were not persisted.]"
+            ] ++ error_recovery_hints(stdout, stderr),
         else: parts
 
     # Show the return value like iex does — truncated to keep it compact
@@ -53,6 +57,30 @@ defmodule RLM.Prompt do
     case parts do
       [] -> "[REPL][AGENT]\n[No output]"
       _ -> "[REPL][AGENT]\n" <> Enum.join(parts, "\n\n")
+    end
+  end
+
+  defp error_recovery_hints(stdout, stderr) do
+    combined = [stdout, stderr] |> Enum.reject(&(&1 in [nil, ""])) |> Enum.join("\n")
+
+    hints =
+      [
+        "[Recovery hint] Use list_bindings() before reusing intermediates after a failed step.",
+        undefined_name_hint(combined)
+      ]
+
+    Enum.reject(hints, &is_nil/1)
+  end
+
+  defp undefined_name_hint(text) do
+    case Regex.run(~r/NameError:\s+name ['"]([^'"]+)['"] is not defined/, text,
+           capture: :all_but_first
+         ) do
+      [name] ->
+        "[Recovery hint] `#{name}` is undefined. Recompute it in this step or guard with `\"#{name}\" in globals()`."
+
+      _ ->
+        nil
     end
   end
 

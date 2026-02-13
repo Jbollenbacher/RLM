@@ -9,6 +9,18 @@ def _rlm_to_text(value):
         return value.decode("utf-8", errors="replace")
     return value
 
+class _RLMHelperError(RuntimeError):
+    pass
+
+def _rlm_unwrap(result, name):
+    if isinstance(result, tuple) and len(result) == 2:
+        status, payload = result
+        if status == "ok":
+            return payload
+        if status == "error":
+            raise _RLMHelperError(f"{name} failed: {payload}")
+    return result
+
 for _name in ("context", "workspace_root", "compacted_history", "last_stdout", "last_stderr", "_rlm_bridge_dir"):
     if _name in globals():
         globals()[_name] = _rlm_to_text(globals()[_name])
@@ -63,7 +75,7 @@ def grep(pattern, string):
             out.append((idx, line))
     return out
 
-def latest_principal_message(context):
+def latest_principal_message_status(context):
     if not isinstance(context, str):
         return ("error", "No chat entries found in context")
     pattern = re.compile(r"^\[RLM_Principal\]\n(.*?)(?=^\[RLM_(?:Principal|Agent)\]|\Z)", re.M | re.S)
@@ -71,6 +83,9 @@ def latest_principal_message(context):
     if not matches:
         return ("error", "No chat entries found in context")
     return ("ok", matches[-1].strip())
+
+def latest_principal_message(context):
+    return _rlm_unwrap(latest_principal_message_status(context), "latest_principal_message")
 
 def _rlm_workspace_root():
     root = _rlm_to_text(globals().get("workspace_root"))
@@ -86,7 +101,7 @@ def _rlm_resolve_workspace_path(path):
         raise ValueError("Path is outside workspace root")
     return root, target
 
-def ls(path="."):
+def ls_status(path="."):
     try:
         _root, target = _rlm_resolve_workspace_path(path)
         if not target.exists() or not target.is_dir():
@@ -98,7 +113,10 @@ def ls(path="."):
     except Exception as exc:
         return ("error", str(exc))
 
-def read_file(path, max_bytes=None):
+def ls(path="."):
+    return _rlm_unwrap(ls_status(path), "ls")
+
+def read_file_status(path, max_bytes=None):
     try:
         _root, target = _rlm_resolve_workspace_path(path)
         if not target.exists() or not target.is_file():
@@ -116,6 +134,9 @@ def read_file(path, max_bytes=None):
     except Exception as exc:
         return ("error", str(exc))
 
+def read_file(path, max_bytes=None):
+    return _rlm_unwrap(read_file_status(path, max_bytes=max_bytes), "read_file")
+
 def _rlm_normalize_patch(patch):
     trimmed = patch.strip("\n")
     lines = trimmed.split("\n")
@@ -132,7 +153,7 @@ def _rlm_normalize_patch(patch):
         adjusted.append("" if line == "" else line[min_indent:])
     return "\n".join(adjusted)
 
-def edit_file(path, patch):
+def edit_file_status(path, patch):
     try:
         if globals().get("workspace_read_only", False):
             return ("error", "Workspace is read-only")
@@ -169,7 +190,10 @@ def edit_file(path, patch):
     except Exception as exc:
         return ("error", str(exc))
 
-def create_file(path, content):
+def edit_file(path, patch):
+    return _rlm_unwrap(edit_file_status(path, patch), "edit_file")
+
+def create_file_status(path, content):
     try:
         if globals().get("workspace_read_only", False):
             return ("error", "Workspace is read-only")
@@ -193,12 +217,28 @@ def create_file(path, content):
     except Exception as exc:
         return ("error", str(exc))
 
+def create_file(path, content):
+    return _rlm_unwrap(create_file_status(path, content), "create_file")
+
+def ok(payload):
+    return {"status": "ok", "payload": payload}
+
+def fail(reason):
+    return {"status": "error", "payload": reason}
+
 def list_bindings():
     excluded = {
         "__builtins__", "json", "re", "sys", "time", "Path",
-        "grep", "latest_principal_message",
-        "ls", "read_file", "edit_file", "create_file",
-        "list_bindings", "lm_query", "print"
+        "grep",
+        "latest_principal_message", "latest_principal_message_status",
+        "ls", "ls_status",
+        "read_file", "read_file_status",
+        "edit_file", "edit_file_status",
+        "create_file", "create_file_status",
+        "ok", "fail",
+        "list_bindings",
+        "lm_query", "lm_query_status",
+        "print"
     }
     out = []
     for name, value in globals().items():
@@ -223,7 +263,7 @@ def _rlm_write_json_atomic(path, payload):
 class _RLMSubagentCrash(RuntimeError):
     pass
 
-def lm_query(text, model_size="small"):
+def lm_query_status(text, model_size="small"):
     bridge_dir = _rlm_to_text(globals().get("_rlm_bridge_dir"))
     if not bridge_dir:
         return ("error", "lm_query not available")
@@ -233,7 +273,7 @@ def lm_query(text, model_size="small"):
     request_id = f"{int(time.time() * 1000)}_{time.perf_counter_ns()}"
     request_path = requests_dir / f"{request_id}.json"
     response_path = responses_dir / f"{request_id}.json"
-    timeout_ms = int(globals().get("_rlm_bridge_timeout_ms", 30000))
+    timeout_ms = int(globals().get("_rlm_bridge_timeout_ms", 180000))
 
     try:
         _rlm_write_json_atomic(
@@ -263,3 +303,6 @@ def lm_query(text, model_size="small"):
         return ("error", str(exc))
 
     return ("error", f"lm_query timed out after {timeout_ms}ms")
+
+def lm_query(text, model_size="small"):
+    return _rlm_unwrap(lm_query_status(text, model_size=model_size), "lm_query")

@@ -90,7 +90,12 @@ defmodule RLM.ObservabilityExportTest do
     [root] = export.agent_tree
     assert root.agent.id == "parent"
     assert export.context_windows_encoding == "delta"
-    refute Enum.any?(root.timeline, &match?(%{event: %{type: "llm"}}, &1))
+    assert Enum.any?(root.timeline, &match?(%{event: %{type: "llm"}}, &1))
+
+    refute Enum.any?(
+             root.timeline,
+             &match?(%{event: %{type: "iteration", payload: %{"status" => "ok"}}}, &1)
+           )
 
     assert Enum.any?(
              root.timeline,

@@ -13,7 +13,10 @@ defmodule RLM.MaxConcurrentAgentsTest do
     post "/chat/completions" do
       response = """
       ```python
-      final_answer = lm_query("subagent task", model_size="small")
+      try:
+          final_answer = lm_query("subagent task", model_size="small")
+      except Exception as exc:
+          final_answer = fail(str(exc))
       ```
       """
 

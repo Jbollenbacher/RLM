@@ -3,7 +3,7 @@ defmodule RLM.FinalAnswerContractTest do
 
   @moduletag timeout: 60_000
 
-  defmodule InvalidThenValidFinalAnswerPlug do
+  defmodule RawFinalAnswerPlug do
     use Plug.Router
     import Plug.Conn
 
@@ -13,13 +13,7 @@ defmodule RLM.FinalAnswerContractTest do
     post "/chat/completions" do
       response = """
       ```python
-      attempt = globals().get("attempt", 0) + 1
-      globals()["attempt"] = attempt
-
-      if attempt == 1:
-          final_answer = "raw text"
-      else:
-          final_answer = ("ok", "done")
+      final_answer = "raw text"
       ```
       """
 
@@ -55,12 +49,12 @@ defmodule RLM.FinalAnswerContractTest do
     end
   end
 
-  test "invalid final_answer format is nudged and retried" do
+  test "raw final_answer values are treated as successful answers" do
     ensure_runtime_supervisors()
     port = free_port()
 
     start_supervised!(
-      {Bandit, plug: InvalidThenValidFinalAnswerPlug, scheme: :http, port: port, ip: {127, 0, 0, 1}}
+      {Bandit, plug: RawFinalAnswerPlug, scheme: :http, port: port, ip: {127, 0, 0, 1}}
     )
 
     config =
@@ -70,7 +64,7 @@ defmodule RLM.FinalAnswerContractTest do
         max_iterations: 4
       )
 
-    assert {:ok, "done"} = RLM.run("", "Finish the task", config: config)
+    assert {:ok, "raw text"} = RLM.run("", "Finish the task", config: config)
   end
 
   test "repeated no-code responses fail the turn" do
