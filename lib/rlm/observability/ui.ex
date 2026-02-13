@@ -768,7 +768,7 @@ defmodule RLM.Observability.UI do
 
             if (hasChildren && isExpanded) {
               node.children.forEach((child, index) => {
-                renderAgentNode(child, depth + 1, `${treePath}${index + 1}`);
+                renderAgentNode(child, depth + 1, `${treePath}.${index + 1}`);
               });
             }
           }

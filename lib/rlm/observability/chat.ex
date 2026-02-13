@@ -102,6 +102,7 @@ defmodule RLM.Observability.Chat do
       true ->
         {user_message, state} = append_message(state, :user, content)
         running = start_generation(state.ask_fn, state.session, content)
+        Store.update_agent(state.session.id, %{status: :running})
 
         response = %{
           status: "accepted",
@@ -127,6 +128,7 @@ defmodule RLM.Observability.Chat do
         {assistant_message, state} =
           append_message(%{state | running: nil, session: session}, :assistant, @interrupt_reply)
 
+        Store.update_agent(session.id, %{status: :error})
         Tracker.record_event(session.id, :principal_interrupt, %{source: :web})
 
         {:reply, {:ok, %{stopped: true, message: assistant_message}}, state}
@@ -150,6 +152,7 @@ defmodule RLM.Observability.Chat do
         Process.demonitor(running.monitor_ref, [:flush])
         state = %{state | running: nil, session: session}
         state = apply_result_message(state, result)
+        Store.update_agent(session.id, %{status: result_status(result)})
         {:noreply, state}
 
       _ ->
@@ -170,6 +173,7 @@ defmodule RLM.Observability.Chat do
           error_text = "Error: generation failed (#{inspect(reason)})"
           state = %{state | running: nil}
           {_, state} = append_message(state, :assistant, error_text)
+          Store.update_agent(state.session.id, %{status: :error})
           {:noreply, state}
         end
 
@@ -214,6 +218,9 @@ defmodule RLM.Observability.Chat do
     {_, state} = append_message(state, :assistant, text)
     state
   end
+
+  defp result_status({:ok, _answer}), do: :done
+  defp result_status({:error, _reason}), do: :error
 
   defp append_message(state, role, content) do
     message = %{

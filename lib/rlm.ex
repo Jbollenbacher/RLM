@@ -20,10 +20,22 @@ defmodule RLM do
         )
       )
 
-    {result, _session} = RLM.Session.ask(session, query)
-    status = if match?({:ok, _}, result), do: :done, else: :error
+    result =
+      try do
+        {result, _session} = RLM.Session.ask(session, query)
+        result
+      rescue
+        exception ->
+          {:error, Exception.format(:error, exception, __STACKTRACE__)}
+      catch
+        kind, reason ->
+          {:error, Exception.format(kind, reason, __STACKTRACE__)}
+      end
 
-    RLM.Observability.emit([:rlm, :agent, :end], %{}, %{agent_id: agent_id, status: status})
+    status = if match?({:ok, _}, result), do: :done, else: :error
+    metadata = %{agent_id: agent_id, status: status}
+
+    RLM.Observability.emit([:rlm, :agent, :end], %{}, metadata)
     result
   end
 end
