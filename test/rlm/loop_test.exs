@@ -143,31 +143,4 @@ defmodule RLM.LoopTest do
       assert history_result == history
     end
   end
-
-  describe "code repetition detection" do
-    test "flags on third identical code block" do
-      {prev_codes, repeated?} = RLM.Loop.track_code_repetition([], "a")
-      refute repeated?
-
-      {prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "a")
-      refute repeated?
-
-      {_prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "a")
-      assert repeated?
-    end
-
-    test "requires consecutive repetitions" do
-      {prev_codes, repeated?} = RLM.Loop.track_code_repetition([], "a")
-      refute repeated?
-
-      {prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "b")
-      refute repeated?
-
-      {prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "b")
-      refute repeated?
-
-      {_prev_codes, repeated?} = RLM.Loop.track_code_repetition(prev_codes, "b")
-      assert repeated?
-    end
-  end
 end

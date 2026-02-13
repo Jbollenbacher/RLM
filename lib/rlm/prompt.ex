@@ -1,5 +1,9 @@
 defmodule RLM.Prompt do
   @system_prompt_text File.read!(Path.join(:code.priv_dir(:rlm), "system_prompt.md"))
+  @how_to_respond_note """
+  [SYSTEM]
+  You can only communicate with the Principal by setting `final_answer` in a ```python``` code block. Proceed according to the system prompt.
+  """
 
   @spec system_prompt() :: String.t()
   def system_prompt, do: @system_prompt_text
@@ -9,41 +13,12 @@ defmodule RLM.Prompt do
 
   @spec initial_user_message(String.t(), keyword()) :: String.t()
   def initial_user_message(context, opts \\ []) do
-    preview_text =
-      case RLM.Helpers.latest_principal_message(context) do
-        {:ok, message} -> RLM.Truncate.truncate(message, head: 250, tail: 250)
-        {:error, _reason} -> RLM.Truncate.truncate(context, head: 250, tail: 250)
-      end
-
-    workspace_available = Keyword.get(opts, :workspace_available, false)
-    workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
-
-    workspace_note =
-      if workspace_available do
-        if workspace_read_only do
-          "[SYSTEM]\nWorkspace access is read-only. Use ls() and read_file() with relative paths.\n\n"
-        else
-          "[SYSTEM]\nWorkspace access is read-write. Use ls(), read_file(), edit_file(), and create_file() with relative paths.\n\n"
-        end
-      else
-        ""
-      end
-
-    how_to_respond_note =
-      "[SYSTEM]\nYou can only communicate with the Principal by setting `final_answer` in a ```python``` code block. Proceed according to the system prompt."
-
-    "#{workspace_note}[PRINCIPAL]\n#{preview_text}\n\n#{how_to_respond_note}"
+    "#{workspace_note(opts)}[PRINCIPAL]\n#{principal_preview(context)}\n\n#{@how_to_respond_note}"
   end
 
   @spec followup_user_message(String.t()) :: String.t()
   def followup_user_message(context) do
-    preview_text =
-      case RLM.Helpers.latest_principal_message(context) do
-        {:ok, message} -> RLM.Truncate.truncate(message, head: 250, tail: 250)
-        {:error, _reason} -> RLM.Truncate.truncate(context, head: 250, tail: 250)
-      end
-
-    "[PRINCIPAL]\n#{preview_text}"
+    "[PRINCIPAL]\n#{principal_preview(context)}"
   end
 
   @spec format_eval_output(String.t(), String.t(), :ok | :error, any()) :: String.t()
@@ -78,6 +53,25 @@ defmodule RLM.Prompt do
     case parts do
       [] -> "[REPL][AGENT]\n[No output]"
       _ -> "[REPL][AGENT]\n" <> Enum.join(parts, "\n\n")
+    end
+  end
+
+  defp principal_preview(context) do
+    case RLM.Helpers.latest_principal_message(context) do
+      {:ok, message} -> RLM.Truncate.truncate(message, head: 250, tail: 250)
+      {:error, _reason} -> RLM.Truncate.truncate(context, head: 250, tail: 250)
+    end
+  end
+
+  defp workspace_note(opts) do
+    if Keyword.get(opts, :workspace_available, false) do
+      if Keyword.get(opts, :workspace_read_only, false) do
+        "[SYSTEM]\nWorkspace access is read-only. Use ls() and read_file() with relative paths.\n\n"
+      else
+        "[SYSTEM]\nWorkspace access is read-write. Use ls(), read_file(), edit_file(), and create_file() with relative paths.\n\n"
+      end
+    else
+      ""
     end
   end
 end
