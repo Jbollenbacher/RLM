@@ -80,34 +80,22 @@ defmodule RLM.Eval do
     receive do
       {:eval_result, :ok, result, new_bindings, captured_output} ->
         Process.demonitor(ref, [:flush])
-        {_, stdout} = StringIO.contents(stdout_device)
-        {_, stderr} = StringIO.contents(stderr_device)
-        StringIO.close(stdout_device)
-        StringIO.close(stderr_device)
+        {stdout, stderr} = collect_output(stdout_device, stderr_device)
         {:ok, captured_output <> stdout <> stderr, result, new_bindings}
 
       {:eval_result, :error, formatted, original_bindings} ->
         Process.demonitor(ref, [:flush])
-        {_, stdout} = StringIO.contents(stdout_device)
-        {_, stderr} = StringIO.contents(stderr_device)
-        StringIO.close(stdout_device)
-        StringIO.close(stderr_device)
+        {stdout, stderr} = collect_output(stdout_device, stderr_device)
         {:error, stdout <> stderr <> formatted, original_bindings}
 
       {:DOWN, ^ref, :process, ^pid, reason} ->
-        {_, stdout} = StringIO.contents(stdout_device)
-        {_, stderr} = StringIO.contents(stderr_device)
-        StringIO.close(stdout_device)
-        StringIO.close(stderr_device)
+        {stdout, stderr} = collect_output(stdout_device, stderr_device)
         {:error, "Process crashed: #{inspect(reason)}\n#{stdout}#{stderr}", bindings}
     after
       timeout ->
         Process.exit(pid, :kill)
         Process.demonitor(ref, [:flush])
-        {_, stdout} = StringIO.contents(stdout_device)
-        {_, stderr} = StringIO.contents(stderr_device)
-        StringIO.close(stdout_device)
-        StringIO.close(stderr_device)
+        {stdout, stderr} = collect_output(stdout_device, stderr_device)
         {:error, "Evaluation timed out after #{timeout}ms\n#{stdout}#{stderr}", bindings}
     end
   end
@@ -307,31 +295,19 @@ defmodule RLM.Eval do
   defp ensure_pythonx_runtime do
     case Application.ensure_all_started(:pythonx) do
       {:ok, _apps} ->
-        wait_for_pythonx_janitor(20)
+        :ok
 
       {:error, {app, reason}} ->
         {:error, "Failed to start #{app}: #{inspect(reason)}"}
     end
   end
 
-  defp wait_for_pythonx_janitor(0), do: {:error, "Pythonx.Janitor unavailable"}
-
-  defp wait_for_pythonx_janitor(attempts_left) do
-    case Process.whereis(Pythonx.Janitor) do
-      nil ->
-        Process.sleep(10)
-        wait_for_pythonx_janitor(attempts_left - 1)
-
-      _pid ->
-        try do
-          :pong = Pythonx.Janitor.ping()
-          :ok
-        catch
-          :exit, _reason ->
-            Process.sleep(10)
-            wait_for_pythonx_janitor(attempts_left - 1)
-        end
-    end
+  defp collect_output(stdout_device, stderr_device) do
+    {_, stdout} = StringIO.contents(stdout_device)
+    {_, stderr} = StringIO.contents(stderr_device)
+    StringIO.close(stdout_device)
+    StringIO.close(stderr_device)
+    {stdout, stderr}
   end
 
   defp prune_internal_globals(python_globals) when is_map(python_globals) do

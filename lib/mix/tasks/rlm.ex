@@ -15,8 +15,6 @@ defmodule Mix.Tasks.Rlm do
           interactive: :boolean,
           verbose: :boolean,
           debug: :boolean,
-          observe: :boolean,
-          observe_port: :integer,
           web: :boolean,
           web_port: :integer
         ],
@@ -37,8 +35,6 @@ defmodule Mix.Tasks.Rlm do
     if web? do
       run_web_mode(opts, query, context, workspace_root, workspace_read_only)
     else
-      maybe_start_observability(opts)
-
       interactive? =
         Keyword.get(opts, :interactive, false) or workspace_root != nil or
           (query == "" and context == "")
@@ -47,17 +43,11 @@ defmodule Mix.Tasks.Rlm do
         interactive? ->
           IO.puts(:stderr, "RLM session ready (#{byte_size(context)} bytes). Type your query.")
 
-          session =
-            RLM.Session.start(context,
-              workspace_root: workspace_root,
-              workspace_read_only: workspace_read_only
-            )
+          session = start_session(context, workspace_root, workspace_read_only)
 
           session =
             if query != "" do
-              {result, session} = RLM.Session.ask(session, query)
-              print_result(result, interactive: true)
-              session
+              ask_and_print(session, query, interactive: true)
             else
               session
             end
@@ -70,14 +60,11 @@ defmodule Mix.Tasks.Rlm do
         true ->
           IO.puts(:stderr, "Running RLM on #{byte_size(context)} bytes...")
 
-          session =
-            RLM.Session.start(context,
-              workspace_root: workspace_root,
-              workspace_read_only: workspace_read_only
-            )
+          context
+          |> start_session(workspace_root, workspace_read_only)
+          |> ask_and_print(query, interactive: false)
 
-          {result, _session} = RLM.Session.ask(session, query)
-          print_result(result, interactive: false)
+          :ok
       end
     end
   end
@@ -127,34 +114,12 @@ defmodule Mix.Tasks.Rlm do
     end
   end
 
-  defp maybe_start_observability(opts) do
-    observe_flag = Keyword.get(opts, :observe, false)
-    observe_env = System.get_env("RLM_OBSERVE") in ["1", "true", "TRUE"]
-
-    if observe_flag or observe_env do
-      port =
-        Keyword.get(opts, :observe_port) ||
-          case System.get_env("RLM_OBSERVE_PORT") do
-            nil -> 4005
-            value -> String.to_integer(value)
-          end
-
-      :ok = RLM.Observability.start(port: port)
-      IO.puts(:stderr, "Observability UI: http://127.0.0.1:#{port}")
-    end
-  end
-
   defp run_web_mode(opts, query, context, workspace_root, workspace_read_only) do
     if query != "" do
       IO.puts(:stderr, "Ignoring positional query in --web mode. Use the web chat panel.")
     end
 
-    port =
-      Keyword.get(opts, :web_port) ||
-        Keyword.get(opts, :observe_port) ||
-        env_port("RLM_WEB_PORT") ||
-        env_port("RLM_OBSERVE_PORT") ||
-        4005
+    port = Keyword.get(opts, :web_port) || env_port("RLM_WEB_PORT") || 4005
 
     :ok =
       RLM.Observability.start(
@@ -196,11 +161,23 @@ defmodule Mix.Tasks.Rlm do
         if query == "" do
           interactive_loop(session)
         else
-          {result, session} = RLM.Session.ask(session, query)
-          print_result(result, interactive: true)
+          session = ask_and_print(session, query, interactive: true)
           interactive_loop(session)
         end
     end
+  end
+
+  defp start_session(context, workspace_root, workspace_read_only) do
+    RLM.Session.start(context,
+      workspace_root: workspace_root,
+      workspace_read_only: workspace_read_only
+    )
+  end
+
+  defp ask_and_print(session, query, opts) do
+    {result, next_session} = RLM.Session.ask(session, query)
+    print_result(result, opts)
+    next_session
   end
 
   defp print_result({:ok, answer}, _opts) do

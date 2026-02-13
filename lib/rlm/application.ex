@@ -7,8 +7,6 @@ defmodule RLM.Application do
 
     children = [
       RLM.AgentLimiter,
-      {Registry, keys: :unique, name: RLM.SessionRegistry},
-      {DynamicSupervisor, strategy: :one_for_one, name: RLM.SessionSupervisor},
       {Finch, name: RLM.Finch, pools: %{default: [size: http_pool_size, count: http_pool_count]}}
     ]
 

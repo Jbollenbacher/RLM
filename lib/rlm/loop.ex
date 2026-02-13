@@ -48,7 +48,7 @@ defmodule RLM.Loop do
       initial_history = [system_msg, user_msg]
 
       {result, _history, _bindings} =
-        iterate(initial_history, initial_bindings, model, config, depth, 0, [], agent_id)
+        iterate(initial_history, initial_bindings, model, config, depth, 0, agent_id)
 
       case result do
         {:ok, answer} -> {:ok, answer}
@@ -59,10 +59,10 @@ defmodule RLM.Loop do
 
   @doc false
   def run_turn(history, bindings, model, config, depth, agent_id) do
-    iterate(history, bindings, model, config, depth, 0, [], agent_id)
+    iterate(history, bindings, model, config, depth, 0, agent_id)
   end
 
-  defp iterate(history, bindings, model, config, depth, iteration, prev_codes, agent_id) do
+  defp iterate(history, bindings, model, config, depth, iteration, agent_id) do
     if iteration >= config.max_iterations do
       {{:error, "Max iterations (#{config.max_iterations}) reached without final_answer"},
        history, bindings}
@@ -89,7 +89,6 @@ defmodule RLM.Loop do
             config,
             depth,
             iteration,
-            prev_codes,
             agent_id,
             iteration_started_at
           )
@@ -171,37 +170,6 @@ defmodule RLM.Loop do
     end
   end
 
-  @doc false
-  def track_code_repetition(prev_codes, code) do
-    repeated_code? = repeated_code?(prev_codes, code)
-    updated_prev_codes = update_prev_codes(prev_codes, code)
-    {updated_prev_codes, repeated_code?}
-  end
-
-  defp repeated_code?(prev_codes, code) do
-    case prev_codes do
-      [last, second | _] -> last == code and second == code
-      _ -> false
-    end
-  end
-
-  defp update_prev_codes(prev_codes, code) do
-    [code | prev_codes] |> Enum.take(3)
-  end
-
-  defp repetition_nudge do
-    """
-    [REPL][AGENT]
-    [Repeated Code Detected]
-
-    Your last three code blocks were identical. You appear to be stuck.
-    Try a different approach. Consider:
-    - Using print() to examine values
-    - Breaking the problem into smaller steps
-    - Using list_bindings() to check your current state
-    """
-  end
-
   defp no_code_nudge do
     """
     [REPL][AGENT]
@@ -258,7 +226,6 @@ defmodule RLM.Loop do
          config,
          depth,
          iteration,
-         prev_codes,
          agent_id,
          iteration_started_at
        ) do
@@ -267,8 +234,6 @@ defmodule RLM.Loop do
         Logger.debug(
           "[RLM] depth=#{depth} iteration=#{iteration} code=#{String.slice(code, 0, 200)}"
         )
-
-        {prev_codes, repeated_code?} = track_code_repetition(prev_codes, code)
 
         # Add agent message to history
         clean_response = strip_leading_agent_tags(response)
@@ -310,14 +275,6 @@ defmodule RLM.Loop do
             history
           else
             history ++ [%{role: :user, content: feedback}]
-          end
-
-        history =
-          if repeated_code? do
-            Logger.warning("[RLM] depth=#{depth} iteration=#{iteration} repeated code detected")
-            history ++ [%{role: :user, content: repetition_nudge()}]
-          else
-            history
           end
 
         # Update history bindings
@@ -362,7 +319,6 @@ defmodule RLM.Loop do
               config,
               depth,
               iteration + 1,
-              prev_codes,
               agent_id
             )
 
@@ -412,7 +368,7 @@ defmodule RLM.Loop do
               ]
 
           RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
-          iterate(history, bindings, model, config, depth, iteration + 1, [], agent_id)
+          iterate(history, bindings, model, config, depth, iteration + 1, agent_id)
         end
     end
   end
