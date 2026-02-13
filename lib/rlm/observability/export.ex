@@ -1,6 +1,7 @@
 defmodule RLM.Observability.Export do
   @moduledoc "Builds an exportable, nested agent log document for offline inspection."
 
+  alias RLM.Observability.LogView
   alias RLM.Observability.Store
 
   @event_limit 10_000
@@ -9,11 +10,15 @@ defmodule RLM.Observability.Export do
   @spec full_agent_logs(keyword()) :: map()
   def full_agent_logs(opts \\ []) do
     include_system = Keyword.get(opts, :include_system, true)
+    log_view = opts |> Keyword.get(:debug, false) |> LogView.normalize()
     agents = Store.list_agents()
 
     events_by_agent =
       Map.new(agents, fn agent ->
-        events = Store.list_events(agent_id: agent.id, since_ts: 0, since_id: 0, limit: @event_limit)
+        events =
+          Store.list_events(agent_id: agent.id, since_ts: 0, since_id: 0, limit: @event_limit)
+          |> LogView.filter_events(log_view)
+
         {agent.id, events}
       end)
 
@@ -67,6 +72,7 @@ defmodule RLM.Observability.Export do
       format: "rlm_agent_log_v1",
       exported_at: System.system_time(:millisecond),
       include_system_prompt: include_system,
+      log_view: Atom.to_string(log_view),
       context_windows_encoding: "delta",
       summary: %{
         agent_count: length(agents),
@@ -108,7 +114,9 @@ defmodule RLM.Observability.Export do
           )
         end)
 
-      child_nodes_by_id = Map.new(child_nodes, fn child_node -> {get_in(child_node, [:agent, :id]), child_node} end)
+      child_nodes_by_id =
+        Map.new(child_nodes, fn child_node -> {get_in(child_node, [:agent, :id]), child_node} end)
+
       snapshots = Map.get(snapshots_by_agent, agent.id, [])
       events = Map.get(events_by_agent, agent.id, [])
 
@@ -116,7 +124,7 @@ defmodule RLM.Observability.Export do
         Enum.map_reduce(events, MapSet.new(), fn event, embedded ->
           child_id = get_child_agent_id(event)
 
-          if event.type == :lm_query and child_id && Map.has_key?(child_nodes_by_id, child_id) do
+          if (event.type == :lm_query and child_id) && Map.has_key?(child_nodes_by_id, child_id) do
             entry = %{
               kind: "dispatch",
               event: export_event(event),
@@ -131,7 +139,9 @@ defmodule RLM.Observability.Export do
 
       orphan_children =
         child_nodes
-        |> Enum.reject(fn child -> MapSet.member?(embedded_child_ids, get_in(child, [:agent, :id])) end)
+        |> Enum.reject(fn child ->
+          MapSet.member?(embedded_child_ids, get_in(child, [:agent, :id]))
+        end)
         |> Enum.map(fn child ->
           %{
             kind: "child",

@@ -129,10 +129,49 @@ defmodule RLM.ObservabilityRouterTest do
     Store.add_event(%{agent_id: "agent_evt", type: :one, payload: %{}, ts: 1000})
     Store.add_event(%{agent_id: "agent_evt", type: :two, payload: %{}, ts: 1000})
 
-    conn = conn(:get, "/api/events?since=0&since_id=0&agent_id=agent_evt") |> Router.call([])
+    conn =
+      conn(:get, "/api/events?since=0&since_id=0&agent_id=agent_evt&debug=1") |> Router.call([])
+
     assert conn.status == 200
     assert conn.resp_body =~ "one"
     assert conn.resp_body =~ "two"
+    assert conn.resp_body =~ "\"log_view\":\"debug\""
+  end
+
+  test "events endpoint defaults to filtered normal log view" do
+    Store.put_agent(%{id: "agent_filtered"})
+    Store.add_event(%{agent_id: "agent_filtered", type: :llm, payload: %{status: :ok}, ts: 1000})
+
+    Store.add_event(%{
+      agent_id: "agent_filtered",
+      type: :iteration,
+      payload: %{status: :ok},
+      ts: 1010
+    })
+
+    Store.add_event(%{
+      agent_id: "agent_filtered",
+      type: :iteration,
+      payload: %{status: :error},
+      ts: 1020
+    })
+
+    Store.add_event(%{
+      agent_id: "agent_filtered",
+      type: :agent_end,
+      payload: %{status: :done},
+      ts: 1030
+    })
+
+    conn = conn(:get, "/api/events?since=0&since_id=0&agent_id=agent_filtered") |> Router.call([])
+    assert conn.status == 200
+
+    body = Jason.decode!(conn.resp_body)
+    assert body["log_view"] == "normal"
+    types = Enum.map(body["events"], & &1["type"])
+    refute "llm" in types
+    assert "iteration" in types
+    assert "agent_end" in types
   end
 
   test "full log export endpoint returns downloadable JSON" do
@@ -152,13 +191,16 @@ defmodule RLM.ObservabilityRouterTest do
 
     conn = conn(:get, "/api/export/full_logs?include_system=1") |> Router.call([])
     assert conn.status == 200
-    assert Plug.Conn.get_resp_header(conn, "content-type") |> Enum.any?(&String.starts_with?(&1, "application/json"))
+
+    assert Plug.Conn.get_resp_header(conn, "content-type")
+           |> Enum.any?(&String.starts_with?(&1, "application/json"))
 
     assert Plug.Conn.get_resp_header(conn, "content-disposition")
            |> Enum.any?(&String.contains?(&1, "attachment; filename=\"rlm_agent_logs_"))
 
     body = Jason.decode!(conn.resp_body)
     assert body["format"] == "rlm_agent_log_v1"
+    assert body["log_view"] == "normal"
     assert is_list(body["agent_tree"])
   end
 

@@ -66,9 +66,9 @@ defmodule RLM.Prompt do
   defp workspace_note(opts) do
     if Keyword.get(opts, :workspace_available, false) do
       if Keyword.get(opts, :workspace_read_only, false) do
-        "[SYSTEM]\nWorkspace access is read-only. Use ls() and read_file() with relative paths.\n\n"
+        "[SYSTEM]\nWorkspace access is read-only. Use the python helper functions ls() and read_file() with relative paths.\n\n"
       else
-        "[SYSTEM]\nWorkspace access is read-write. Use ls(), read_file(), edit_file(), and create_file() with relative paths.\n\n"
+        "[SYSTEM]\nWorkspace access is read-write. Use the python helper functions ls(), read_file(), edit_file(), and create_file() with relative paths.\n\n"
       end
     else
       ""

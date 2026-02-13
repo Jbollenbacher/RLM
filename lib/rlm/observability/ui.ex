@@ -438,6 +438,10 @@ defmodule RLM.Observability.UI do
                     <input type="checkbox" id="toggle-system" />
                     Show system prompt
                   </label>
+                  <label class="toggle">
+                    <input type="checkbox" id="toggle-debug-logs" />
+                    Debug logs
+                  </label>
                   <button id="copy-context" type="button">Copy Context</button>
                   <span id="context-copy-status" aria-live="polite"></span>
                   <button id="export-logs" type="button">Export Full Agent Logs</button>
@@ -468,6 +472,7 @@ defmodule RLM.Observability.UI do
             lastEventId: 0,
             lastSnapshotId: 0,
             showSystem: false,
+            debugLogs: false,
             expandedAgents: new Set(),
             chatSessionId: null,
             chatLastMessageId: 0,
@@ -877,7 +882,8 @@ defmodule RLM.Observability.UI do
             const params = new URLSearchParams({
               since: String(state.lastEventTs),
               since_id: String(state.lastEventId),
-              agent_id: state.selectedAgent
+              agent_id: state.selectedAgent,
+              debug: state.debugLogs ? "1" : "0"
             });
             const data = await fetchJSON(`/api/events?${params.toString()}`);
             const events = data.events || [];
@@ -1037,9 +1043,12 @@ defmodule RLM.Observability.UI do
 
           async function downloadFullLogs() {
             const includeSystem = state.showSystem ? "1" : "0";
+            const debug = state.debugLogs ? "1" : "0";
 
             try {
-              const response = await fetch(`/api/export/full_logs?include_system=${includeSystem}`);
+              const response = await fetch(
+                `/api/export/full_logs?include_system=${includeSystem}&debug=${debug}`
+              );
 
               if (!response.ok) {
                 throw new Error(`Export failed (${response.status})`);
@@ -1072,6 +1081,20 @@ defmodule RLM.Observability.UI do
               state.showSystem = systemToggle.checked;
               state.lastSnapshotId = 0;
               loadContext(true);
+            });
+          }
+
+          const debugLogsToggle = document.getElementById("toggle-debug-logs");
+          if (debugLogsToggle) {
+            debugLogsToggle.addEventListener("change", () => {
+              state.debugLogs = debugLogsToggle.checked;
+              state.lastEventTs = 0;
+              state.lastEventId = 0;
+              const eventsEl = document.getElementById("events");
+              if (eventsEl) {
+                eventsEl.innerHTML = "";
+              }
+              pollEvents();
             });
           }
 

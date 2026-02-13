@@ -55,14 +55,7 @@ defmodule RLM.Observability do
   defp default_status(_), do: :error
 
   @spec iteration_start(String.t(), non_neg_integer()) :: integer()
-  def iteration_start(agent_id, iteration) do
-    if enabled?() and agent_id do
-      emit([:rlm, :iteration, :start], %{system_time: System.system_time(:millisecond)}, %{
-        agent_id: agent_id,
-        iteration: iteration
-      })
-    end
-
+  def iteration_start(_agent_id, _iteration) do
     System.monotonic_time()
   end
 

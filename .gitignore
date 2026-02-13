@@ -45,4 +45,4 @@ todo.md
 
 # Test workspace
 workspace/
-rlm_agent_logs*.json
+# rlm_agent_logs*.json

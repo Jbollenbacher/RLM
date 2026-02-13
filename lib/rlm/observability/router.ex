@@ -1,6 +1,8 @@
 defmodule RLM.Observability.Router do
   use Plug.Router
 
+  alias RLM.Observability.LogView
+
   plug(:fetch_qs)
 
   plug(Plug.Parsers,
@@ -41,6 +43,7 @@ defmodule RLM.Observability.Router do
     since_id = parse_int(Map.get(params, "since_id", "0"))
     agent_id = Map.get(params, "agent_id")
     limit = parse_int(Map.get(params, "limit", "500"))
+    log_view = params |> Map.get("debug", "0") |> parse_bool() |> LogView.normalize()
 
     events =
       RLM.Observability.Store.list_events(
@@ -49,13 +52,18 @@ defmodule RLM.Observability.Router do
         agent_id: agent_id,
         limit: limit
       )
+      |> LogView.filter_events(log_view)
 
-    json(conn, 200, %{events: events})
+    json(conn, 200, %{events: events, log_view: Atom.to_string(log_view)})
   end
 
   get "/api/export/full_logs" do
     include_system = parse_bool(Map.get(conn.query_params, "include_system", "1"))
-    export = RLM.Observability.Export.full_agent_logs(include_system: include_system)
+    debug = parse_bool(Map.get(conn.query_params, "debug", "0"))
+
+    export =
+      RLM.Observability.Export.full_agent_logs(include_system: include_system, debug: debug)
+
     filename = export_filename()
     body = Jason.encode!(export, pretty: true)
 

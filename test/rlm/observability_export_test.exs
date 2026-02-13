@@ -19,6 +19,27 @@ defmodule RLM.ObservabilityExportTest do
 
     Store.add_event(%{
       agent_id: "parent",
+      type: :llm,
+      payload: %{status: :ok, duration_ms: 12},
+      ts: 980
+    })
+
+    Store.add_event(%{
+      agent_id: "parent",
+      type: :iteration,
+      payload: %{status: :ok, duration_ms: 20},
+      ts: 990
+    })
+
+    Store.add_event(%{
+      agent_id: "parent",
+      type: :iteration,
+      payload: %{status: :error, duration_ms: 30},
+      ts: 995
+    })
+
+    Store.add_event(%{
+      agent_id: "parent",
       type: :lm_query,
       payload: %{child_agent_id: "child", model_size: :small},
       ts: 1000
@@ -64,10 +85,20 @@ defmodule RLM.ObservabilityExportTest do
     export = Export.full_agent_logs()
 
     assert export.format == "rlm_agent_log_v1"
+    assert export.log_view == "normal"
     assert export.root_agent_ids == ["parent"]
     [root] = export.agent_tree
     assert root.agent.id == "parent"
     assert export.context_windows_encoding == "delta"
+    refute Enum.any?(root.timeline, &match?(%{event: %{type: "llm"}}, &1))
+
+    assert Enum.any?(
+             root.timeline,
+             &match?(
+               %{kind: "event", event: %{type: "iteration", payload: %{"status" => "error"}}},
+               &1
+             )
+           )
 
     [first_window, second_window] = root.context_windows
     assert first_window.delta_kind == "full"
@@ -76,10 +107,16 @@ defmodule RLM.ObservabilityExportTest do
     assert second_window.transcript_delta =~ "[AGENT]\nWorking..."
     assert second_window.from_snapshot_id == first_window.id
 
-    [dispatch | _] = root.timeline
+    dispatch = Enum.find(root.timeline, &match?(%{kind: "dispatch"}, &1))
+    refute is_nil(dispatch)
     assert dispatch.kind == "dispatch"
     assert dispatch.event.type == "lm_query"
     assert dispatch.child_agent.agent.id == "child"
     assert is_list(dispatch.child_agent.context_windows)
+
+    debug_export = Export.full_agent_logs(debug: true)
+    [debug_root] = debug_export.agent_tree
+    assert debug_export.log_view == "debug"
+    assert Enum.any?(debug_root.timeline, &match?(%{event: %{type: "llm"}}, &1))
   end
 end
