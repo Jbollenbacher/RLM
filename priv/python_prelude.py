@@ -237,7 +237,7 @@ def list_bindings():
         "create_file", "create_file_status",
         "ok", "fail",
         "list_bindings",
-        "lm_query", "lm_query_status",
+        "lm_query", "poll_lm_query", "await_lm_query", "cancel_lm_query",
         "print"
     }
     out = []
@@ -263,27 +263,27 @@ def _rlm_write_json_atomic(path, payload):
 class _RLMSubagentCrash(RuntimeError):
     pass
 
-def lm_query_status(text, model_size="small"):
+def _rlm_bridge_request(payload, timeout_ms=None):
     bridge_dir = _rlm_to_text(globals().get("_rlm_bridge_dir"))
     if not bridge_dir:
-        return ("error", "lm_query not available")
+        return {"status": "error", "payload": "lm_query not available"}
 
     requests_dir = Path(bridge_dir) / "requests"
     responses_dir = Path(bridge_dir) / "responses"
     request_id = f"{int(time.time() * 1000)}_{time.perf_counter_ns()}"
     request_path = requests_dir / f"{request_id}.json"
     response_path = responses_dir / f"{request_id}.json"
-    timeout_ms = int(globals().get("_rlm_bridge_timeout_ms", 180000))
+    if timeout_ms is None:
+        timeout_ms = int(globals().get("_rlm_bridge_timeout_ms", 180000))
+    else:
+        timeout_ms = int(timeout_ms)
 
     try:
-        _rlm_write_json_atomic(
-            request_path,
-            {
-                "text": _rlm_to_text(text),
-                "model_size": _rlm_to_text(model_size),
-                "timeout_ms": timeout_ms
-            }
-        )
+        normalized_payload = {}
+        for key, value in dict(payload).items():
+            normalized_payload[key] = _rlm_to_text(value)
+
+        _rlm_write_json_atomic(request_path, normalized_payload)
 
         deadline = time.time() + (timeout_ms / 1000.0)
         while time.time() < deadline:
@@ -293,16 +293,81 @@ def lm_query_status(text, model_size="small"):
                     response_path.unlink()
                 except Exception:
                     pass
-                if data.get("raise"):
-                    raise _RLMSubagentCrash(str(data.get("payload", "Subagent failed")))
-                return (data.get("status", "error"), data.get("payload"))
+                return data
             time.sleep(0.01)
-    except _RLMSubagentCrash:
-        raise
     except Exception as exc:
-        return ("error", str(exc))
+        return {"status": "error", "payload": str(exc)}
 
-    return ("error", f"lm_query timed out after {timeout_ms}ms")
+    return {"status": "error", "payload": f"Bridge request timed out after {timeout_ms}ms"}
 
 def lm_query(text, model_size="small"):
-    return _rlm_unwrap(lm_query_status(text, model_size=model_size), "lm_query")
+    subagent_timeout_ms = int(globals().get("_rlm_bridge_timeout_ms", 180000))
+
+    response = _rlm_bridge_request(
+        {
+            "op": "dispatch",
+            "text": _rlm_to_text(text),
+            "model_size": _rlm_to_text(model_size),
+            "timeout_ms": subagent_timeout_ms
+        }
+    )
+
+    return _rlm_unwrap((response.get("status", "error"), response.get("payload")), "lm_query")
+
+def poll_lm_query(child_agent_id):
+    response = _rlm_bridge_request(
+        {
+            "op": "poll",
+            "child_agent_id": _rlm_to_text(child_agent_id)
+        }
+    )
+
+    return _rlm_unwrap((response.get("status", "error"), response.get("payload")), "poll_lm_query")
+
+def await_lm_query(child_agent_id, timeout_ms=None, poll_interval_ms=50):
+    if timeout_ms is not None:
+        timeout_ms = int(timeout_ms)
+        if timeout_ms <= 0:
+            raise _RLMHelperError("await_lm_query timeout_ms must be positive or None")
+        deadline = time.time() + (timeout_ms / 1000.0)
+    else:
+        deadline = None
+
+    poll_interval = int(poll_interval_ms)
+    if poll_interval <= 0:
+        poll_interval = 50
+
+    child_agent_id = _rlm_to_text(child_agent_id)
+
+    while True:
+        state = poll_lm_query(child_agent_id)
+        kind = str(state.get("state", "error")).lower()
+
+        if kind == "running":
+            if deadline is not None and time.time() >= deadline:
+                raise _RLMHelperError(
+                    f"await_lm_query timed out after {timeout_ms}ms for {child_agent_id}"
+                )
+            time.sleep(poll_interval / 1000.0)
+            continue
+
+        if kind == "ok":
+            return state.get("payload")
+
+        if kind == "error":
+            raise _RLMSubagentCrash(str(state.get("payload", "Subagent failed")))
+
+        if kind == "cancelled":
+            raise _RLMSubagentCrash(str(state.get("payload", "Subagent cancelled")))
+
+        raise _RLMHelperError(f"Unknown lm_query state for {child_agent_id}: {state}")
+
+def cancel_lm_query(child_agent_id):
+    response = _rlm_bridge_request(
+        {
+            "op": "cancel",
+            "child_agent_id": _rlm_to_text(child_agent_id)
+        }
+    )
+
+    return _rlm_unwrap((response.get("status", "error"), response.get("payload")), "cancel_lm_query")

@@ -7,6 +7,7 @@ defmodule RLM.Application do
 
     children = [
       RLM.AgentLimiter,
+      RLM.Subagent.Broker,
       {Finch, name: RLM.Finch, pools: %{default: [size: http_pool_size, count: http_pool_count]}}
     ]
 

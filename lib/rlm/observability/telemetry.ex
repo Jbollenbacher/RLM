@@ -42,6 +42,7 @@ defmodule RLM.Observability.Telemetry do
     )
 
     RLM.Observability.AgentWatcher.unwatch(metadata.agent_id)
+    RLM.Subagent.Broker.cancel_all(metadata.agent_id)
   end
 
   def handle_event([:rlm, :agent, :status], _measurements, metadata, _config) do

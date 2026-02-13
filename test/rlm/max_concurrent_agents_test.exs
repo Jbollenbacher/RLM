@@ -14,7 +14,8 @@ defmodule RLM.MaxConcurrentAgentsTest do
       response = """
       ```python
       try:
-          final_answer = lm_query("subagent task", model_size="small")
+          job_id = lm_query("subagent task", model_size="small")
+          final_answer = await_lm_query(job_id, timeout_ms=5_000)
       except Exception as exc:
           final_answer = fail(str(exc))
       ```

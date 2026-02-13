@@ -80,38 +80,60 @@ defmodule RLM.EvalTest do
     end
   end
 
-  describe "lm_query crash fallback" do
-    test "preserves specific lm_query errors as return values" do
+  describe "async lm_query helpers" do
+    test "await surfaces specific lm_query errors" do
       {:ok, stdout, _result, _bindings} =
-        RLM.Eval.eval(~s[print(lm_query_status("subtask"))],
+        RLM.Eval.eval(
+          ~s[
+job_id = lm_query("subtask")
+try:
+    await_lm_query(job_id, timeout_ms=1_000)
+except Exception as exc:
+    print(exc)
+],
           lm_query: fn _text, _opts -> {:error, "boom"} end
         )
 
       assert stdout =~ "boom"
     end
 
-    test "raises in Python when watcher identifies a crashed subagent" do
-      unless Process.whereis(RLM.Observability.Store) do
-        start_supervised!(
-          {RLM.Observability.Store,
-           [max_events_per_agent: 50, max_context_snapshots_per_agent: 10, max_agents: 10]}
+    test "dispatch returns child id and poll observes running job" do
+      {:ok, stdout, _result, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+job_id = lm_query("slow-subtask")
+state = poll_lm_query(job_id)
+print(job_id.startswith("agent_"))
+print(state.get("state"))
+],
+          lm_query: fn _text, _opts ->
+            Process.sleep(250)
+            {:ok, "done"}
+          end
         )
-      end
 
-      lm_query_fn = fn _text, opts ->
-        child_agent_id = Keyword.fetch!(opts, :child_agent_id)
-        RLM.Observability.Tracker.start_agent(child_agent_id, nil, "model", 1)
+      assert stdout =~ "True"
+      assert stdout =~ "running"
+    end
 
-        RLM.Observability.Tracker.end_agent(child_agent_id, :error, %{
-          source: :pid_down,
-          reason: ":killed"
-        })
-
+    test "await raises in Python when subagent crashes" do
+      lm_query_fn = fn _text, _opts ->
         exit(:killed)
       end
 
-      {:error, stdout, _bindings} = RLM.Eval.eval(~s[lm_query("subtask")], lm_query: lm_query_fn)
-      assert stdout =~ "Subagent crashed before returning a result (watcher)"
+      {:ok, stdout, _result, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+job_id = lm_query("subtask")
+try:
+    await_lm_query(job_id, timeout_ms=1_000)
+except Exception as exc:
+    print(exc)
+],
+          lm_query: lm_query_fn
+        )
+
+      assert stdout =~ "killed"
     end
   end
 end

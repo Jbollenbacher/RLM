@@ -32,6 +32,8 @@ defmodule RLM do
           {:error, Exception.format(kind, reason, __STACKTRACE__)}
       end
 
+    RLM.Subagent.Broker.cancel_all(agent_id)
+
     status = if match?({:ok, _}, result), do: :done, else: :error
     metadata = %{agent_id: agent_id, status: status}
 
