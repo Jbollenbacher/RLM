@@ -177,6 +177,13 @@ defmodule RLM.Loop do
     """
   end
 
+  defp invalid_final_answer_nudge do
+    """
+    [REPL][AGENT]
+    [Invalid final_answer format. Set `final_answer` to a 2-tuple like ("ok", answer) or ("error", reason).]
+    """
+  end
+
   defp last_user_nudge?(history) do
     case List.last(history) do
       %{role: :user, content: content} -> content == no_code_nudge()
@@ -309,6 +316,25 @@ defmodule RLM.Loop do
 
             {{:error, normalized}, history, new_bindings}
 
+          {:invalid, _other} ->
+            Logger.warning(
+              "[RLM] depth=#{depth} iteration=#{iteration} invalid final_answer format; expected ('ok'|'error', payload)"
+            )
+
+            history = history ++ [%{role: :user, content: invalid_final_answer_nudge()}]
+            new_bindings = Keyword.put(new_bindings, :final_answer, nil)
+            RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
+
+            iterate(
+              history,
+              new_bindings,
+              model,
+              config,
+              depth,
+              iteration + 1,
+              agent_id
+            )
+
           nil ->
             RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
 
@@ -321,42 +347,26 @@ defmodule RLM.Loop do
               iteration + 1,
               agent_id
             )
-
-          other when other != nil ->
-            Logger.info(
-              "[RLM] depth=#{depth} completed with raw answer at iteration=#{iteration}"
-            )
-
-            RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
-            normalized = normalize_answer(other)
-            compacted? = Keyword.get(new_bindings, :compacted_history, "") != ""
-
-            RLM.Observability.snapshot_context(agent_id, iteration, history, config,
-              compacted?: compacted?
-            )
-
-            {{:ok, normalized}, history, new_bindings}
         end
 
       {:error, :no_code_block} ->
-        # LLM didn't produce code — nudge it once, then accept plain text to avoid stalling
+        # LLM didn't produce code — nudge once, then fail if it happens again.
         Logger.warning("[RLM] depth=#{depth} iteration=#{iteration} no code block found")
 
         if last_user_nudge?(history) do
-          Logger.warning(
-            "[RLM] depth=#{depth} accepting plain-text response after repeated no-code"
-          )
+          Logger.warning("[RLM] depth=#{depth} repeated no-code response; failing turn")
 
           clean_response = strip_leading_agent_tags(response)
           history = history ++ [%{role: :assistant, content: clean_response}]
-          RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
+          RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
           compacted? = Keyword.get(bindings, :compacted_history, "") != ""
 
           RLM.Observability.snapshot_context(agent_id, iteration, history, config,
             compacted?: compacted?
           )
 
-          {{:ok, normalize_answer(response)}, history, bindings}
+          {{:error, "No code block found after retry; set `final_answer` in Python code."},
+           history, bindings}
         else
           clean_response = strip_leading_agent_tags(response)
 

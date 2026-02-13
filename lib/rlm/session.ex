@@ -44,7 +44,8 @@ defmodule RLM.Session do
         agent_id: id,
         parent_id: parent_agent_id,
         model: model,
-        depth: depth
+        depth: depth,
+        owner_pid: self()
       }
     )
 

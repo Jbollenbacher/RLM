@@ -16,7 +16,8 @@ defmodule RLM.Observability.Supervisor do
 
     children =
       [
-        {RLM.Observability.Store, store_opts}
+        {RLM.Observability.Store, store_opts},
+        {RLM.Observability.AgentWatcher, []}
       ] ++
         maybe_chat_child(chat_opts) ++
         [

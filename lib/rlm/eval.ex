@@ -290,7 +290,7 @@ defmodule RLM.Eval do
     normalize_final_answer({status, payload})
   end
 
-  defp normalize_final_answer(other), do: other
+  defp normalize_final_answer(other), do: {:invalid, other}
 
   defp ensure_pythonx_runtime do
     case Application.ensure_all_started(:pythonx) do

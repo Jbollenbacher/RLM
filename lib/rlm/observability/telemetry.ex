@@ -31,6 +31,7 @@ defmodule RLM.Observability.Telemetry do
 
   def handle_event([:rlm, :agent, :start], _measurements, metadata, _config) do
     Tracker.start_agent(metadata.agent_id, metadata.parent_id, metadata.model, metadata.depth)
+    maybe_watch_agent_owner(metadata.agent_id, metadata.owner_pid)
   end
 
   def handle_event([:rlm, :agent, :end], _measurements, metadata, _config) do
@@ -39,6 +40,8 @@ defmodule RLM.Observability.Telemetry do
       metadata.status,
       Map.drop(metadata, [:agent_id, :status])
     )
+
+    RLM.Observability.AgentWatcher.unwatch(metadata.agent_id)
   end
 
   def handle_event([:rlm, :iteration, :start], _measurements, metadata, _config) do
@@ -81,4 +84,10 @@ defmodule RLM.Observability.Telemetry do
   end
 
   def handle_event(_event, _measurements, _metadata, _config), do: :ok
+
+  defp maybe_watch_agent_owner(agent_id, owner_pid) when is_pid(owner_pid) do
+    RLM.Observability.AgentWatcher.watch(agent_id, owner_pid)
+  end
+
+  defp maybe_watch_agent_owner(_agent_id, _owner_pid), do: :ok
 end
