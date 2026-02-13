@@ -7,7 +7,16 @@ defmodule RLM.LLM do
     agent_id = Keyword.get(opts, :agent_id)
     iteration = Keyword.get(opts, :iteration)
 
-    RLM.Observability.span(:llm, %{agent_id: agent_id, iteration: iteration, model: model}, fn ->
+    metadata = %{
+      agent_id: agent_id,
+      iteration: iteration,
+      model: model,
+      message_count: length(messages),
+      context_chars: total_context_chars(messages),
+      request_tail: request_tail(messages)
+    }
+
+    RLM.Observability.span(:llm, metadata, fn ->
       req =
         Req.new(
           base_url: config.api_base_url,
@@ -63,5 +72,27 @@ defmodule RLM.LLM do
 
   defp to_api_map(%{role: role, content: content}) do
     %{"role" => to_string(role), "content" => content}
+  end
+
+  defp total_context_chars(messages) do
+    Enum.reduce(messages, 0, fn message, acc ->
+      content = message |> Map.get(:content, "") |> to_string()
+      acc + String.length(content)
+    end)
+  end
+
+  defp request_tail(messages) do
+    messages
+    |> Enum.take(-3)
+    |> Enum.map(fn message ->
+      role = message |> Map.get(:role, "unknown") |> to_string()
+      content = message |> Map.get(:content, "") |> to_string()
+
+      %{
+        role: role,
+        chars: String.length(content),
+        preview: RLM.Truncate.truncate(content, head: 200, tail: 200)
+      }
+    end)
   end
 end

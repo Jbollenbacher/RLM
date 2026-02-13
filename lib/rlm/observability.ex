@@ -93,13 +93,18 @@ defmodule RLM.Observability do
 
   @spec child_query(String.t(), String.t(), atom(), non_neg_integer(), keyword()) :: :ok
   def child_query(parent_agent_id, child_agent_id, model_size, text_bytes, opts \\ []) do
-    emit([:rlm, :lm_query], %{}, %{
-      agent_id: parent_agent_id,
-      child_agent_id: child_agent_id,
-      model_size: model_size,
-      text_bytes: text_bytes,
-      assessment_sampled: Keyword.get(opts, :assessment_sampled, false)
-    })
+    payload =
+      %{
+        agent_id: parent_agent_id,
+        child_agent_id: child_agent_id,
+        model_size: model_size,
+        text_bytes: text_bytes,
+        assessment_sampled: Keyword.get(opts, :assessment_sampled, false)
+      }
+      |> maybe_put_opt(opts, :text_chars)
+      |> maybe_put_opt(opts, :query_preview)
+
+    emit([:rlm, :lm_query], %{}, payload)
   end
 
   @spec subagent_assessment(String.t(), String.t(), atom(), String.t()) :: :ok
@@ -141,6 +146,13 @@ defmodule RLM.Observability do
 
       _pid ->
         :ok
+    end
+  end
+
+  defp maybe_put_opt(payload, opts, key) do
+    case Keyword.get(opts, key) do
+      nil -> payload
+      value -> Map.put(payload, key, value)
     end
   end
 end

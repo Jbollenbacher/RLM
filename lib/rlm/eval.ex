@@ -20,10 +20,17 @@ defmodule RLM.Eval do
 
     agent_id = Keyword.get(opts, :agent_id)
     iteration = Keyword.get(opts, :iteration)
+    code_text = to_string(code)
+    code_preview = RLM.Truncate.truncate(code_text, head: 220, tail: 220)
 
     RLM.Observability.span(
       :eval,
-      %{agent_id: agent_id, iteration: iteration},
+      %{
+        agent_id: agent_id,
+        iteration: iteration,
+        code_bytes: byte_size(code_text),
+        code_preview: code_preview
+      },
       fn ->
         do_eval(
           code,

@@ -302,6 +302,29 @@
           .event {
             padding: 6px 0;
             border-bottom: 1px dashed rgba(38, 48, 68, 0.6);
+            cursor: pointer;
+            border-radius: 6px;
+            padding-left: 6px;
+            padding-right: 6px;
+          }
+          .event:hover {
+            background: rgba(107, 220, 255, 0.08);
+          }
+          .event.active {
+            background: rgba(107, 220, 255, 0.14);
+            border-bottom-color: rgba(107, 220, 255, 0.4);
+          }
+          #event-details {
+            margin-top: 10px;
+            flex: 0 0 180px;
+            background: #0b0f18;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            padding: 10px;
+            font-family: var(--mono);
+            font-size: 11px;
+            white-space: pre-wrap;
+            overflow: auto;
           }
           .chat-panel {
             min-height: 0;
@@ -490,6 +513,7 @@
               <section class="panel">
                 <h2>Event Feed</h2>
                 <div id="events"></div>
+                <pre id="event-details" class="muted">Click an event to inspect details.</pre>
               </section>
             </section>
           </section>
@@ -507,7 +531,9 @@
             expandedAgents: new Set(),
             chatSessionId: null,
             chatLastMessageId: 0,
-            chatBusy: false
+            chatBusy: false,
+            selectedEventKey: null,
+            eventMap: new Map()
           };
 
           function isMobileLayout() {
@@ -833,10 +859,8 @@
             div.onclick = () => {
               exitFullLogsPreview();
               state.selectedAgent = node.id;
-              state.lastEventTs = 0;
-              state.lastEventId = 0;
               state.lastSnapshotId = 0;
-              document.getElementById("events").innerHTML = "";
+              resetEventsView();
               loadContext(true);
               renderAgents();
             };
@@ -855,6 +879,141 @@
             container.innerHTML = "";
             const roots = buildAgentTree(state.agents);
             roots.forEach((root, index) => renderAgentNode(root, 0, String(index + 1)));
+          }
+
+          function indentLines(text, prefix = "  ") {
+            return String(text || "")
+              .split("\n")
+              .map(line => `${prefix}${line}`)
+              .join("\n");
+          }
+
+          function formatRequestTail(payload) {
+            const tail = payload.request_tail;
+            if (!Array.isArray(tail) || tail.length === 0) {
+              return "  (not captured)";
+            }
+
+            return tail
+              .map((entry, index) => {
+                const role = entry.role || "unknown";
+                const chars = Number.isFinite(entry.chars) ? entry.chars : "?";
+                const preview = entry.preview || "";
+                return `${index + 1}. [${role}] (${chars} chars)\n${indentLines(preview, "   ")}`;
+              })
+              .join("\n\n");
+          }
+
+          function formatEventDetails(event) {
+            const payload = event.payload || {};
+            const eventType = event.type || "unknown";
+            const tsNum = Number(event.ts);
+            const isoTime = Number.isFinite(tsNum) ? new Date(tsNum).toISOString() : "unknown";
+            const lines = [];
+
+            lines.push(`Event: ${eventType}`);
+            lines.push(`Agent: ${event.agent_id || "unknown"}`);
+            lines.push(`Time: ${isoTime}`);
+            if (event.id != null) {
+              lines.push(`ID: ${event.id}`);
+            }
+
+            if (eventType === "eval") {
+              lines.push("");
+              lines.push("Evaluation");
+              if (payload.iteration != null) lines.push(`iteration: ${payload.iteration}`);
+              if (payload.status != null) lines.push(`status: ${payload.status}`);
+              if (payload.duration_ms != null) lines.push(`duration_ms: ${payload.duration_ms}`);
+              if (payload.code_bytes != null) lines.push(`code_bytes: ${payload.code_bytes}`);
+
+              if (payload.code_preview) {
+                lines.push("code_preview:");
+                lines.push(indentLines(payload.code_preview));
+              }
+            } else if (eventType === "lm_query") {
+              lines.push("");
+              lines.push("Subagent Dispatch");
+              if (payload.child_agent_id) lines.push(`child_agent_id: ${payload.child_agent_id}`);
+              if (payload.model_size != null) lines.push(`model_size: ${payload.model_size}`);
+              if (payload.assessment_sampled != null) {
+                lines.push(`assessment_sampled: ${payload.assessment_sampled}`);
+              }
+              if (payload.text_bytes != null) lines.push(`text_bytes: ${payload.text_bytes}`);
+              if (payload.text_chars != null) lines.push(`text_chars: ${payload.text_chars}`);
+
+              if (payload.query_preview) {
+                lines.push("query_preview:");
+                lines.push(indentLines(payload.query_preview));
+              }
+            } else if (eventType === "llm") {
+              lines.push("");
+              lines.push("Raw LLM Dispatch");
+              if (payload.iteration != null) lines.push(`iteration: ${payload.iteration}`);
+              if (payload.model != null) lines.push(`model: ${payload.model}`);
+              if (payload.status != null) lines.push(`status: ${payload.status}`);
+              if (payload.duration_ms != null) lines.push(`duration_ms: ${payload.duration_ms}`);
+              if (payload.message_count != null) lines.push(`message_count: ${payload.message_count}`);
+              if (payload.context_chars != null) lines.push(`context_chars: ${payload.context_chars}`);
+              lines.push("request_tail (delta context):");
+              lines.push(indentLines(formatRequestTail(payload), "  "));
+            }
+
+            lines.push("");
+            lines.push("payload:");
+            lines.push(JSON.stringify(payload, null, 2));
+
+            return lines.join("\n");
+          }
+
+          function setEventDetails(event) {
+            const detailsEl = document.getElementById("event-details");
+            if (!detailsEl) return;
+
+            if (!event) {
+              detailsEl.textContent = "Click an event to inspect details.";
+              detailsEl.classList.add("muted");
+              return;
+            }
+
+            detailsEl.textContent = formatEventDetails(event);
+            detailsEl.classList.remove("muted");
+          }
+
+          function selectEventByKey(eventKey) {
+            const eventsEl = document.getElementById("events");
+            if (!eventsEl) return;
+
+            state.selectedEventKey = eventKey;
+
+            eventsEl.querySelectorAll(".event.active").forEach(node => {
+              node.classList.remove("active");
+            });
+
+            if (!eventKey) {
+              setEventDetails(null);
+              return;
+            }
+
+            const selectedNode = eventsEl.querySelector(`.event[data-event-key="${eventKey}"]`);
+            if (selectedNode) {
+              selectedNode.classList.add("active");
+            }
+
+            setEventDetails(state.eventMap.get(eventKey) || null);
+          }
+
+          function resetEventsView() {
+            state.lastEventTs = 0;
+            state.lastEventId = 0;
+            state.selectedEventKey = null;
+            state.eventMap = new Map();
+
+            const eventsEl = document.getElementById("events");
+            if (eventsEl) {
+              eventsEl.innerHTML = "";
+            }
+
+            setEventDetails(null);
           }
 
           async function loadAgents() {
@@ -910,12 +1069,31 @@
             const eventsEl = document.getElementById("events");
             const nearBottom = eventsEl.scrollTop + eventsEl.clientHeight + 40 >= eventsEl.scrollHeight;
             events.forEach(evt => {
+              const eventKey = evt.id != null ? String(evt.id) : `${evt.ts}:${evt.type}`;
+              state.eventMap.set(eventKey, evt);
+
               const line = document.createElement("div");
               line.className = "event";
+              line.dataset.eventKey = eventKey;
+              line.tabIndex = 0;
               const detail = evt.payload && evt.payload.duration_ms ? ` (${evt.payload.duration_ms}ms)` : "";
               line.textContent = `[${new Date(evt.ts).toLocaleTimeString()}] ${evt.type}${detail}`;
+              line.addEventListener("click", () => {
+                selectEventByKey(eventKey);
+              });
+              line.addEventListener("keydown", event => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  selectEventByKey(eventKey);
+                }
+              });
               eventsEl.appendChild(line);
             });
+
+            if (state.selectedEventKey) {
+              selectEventByKey(state.selectedEventKey);
+            }
+
             if (events.length > 0) {
               const last = events[events.length - 1];
               state.lastEventTs = last.ts || state.lastEventTs;
@@ -1162,12 +1340,7 @@
           if (debugLogsToggle) {
             debugLogsToggle.addEventListener("change", () => {
               state.debugLogs = debugLogsToggle.checked;
-              state.lastEventTs = 0;
-              state.lastEventId = 0;
-              const eventsEl = document.getElementById("events");
-              if (eventsEl) {
-                eventsEl.innerHTML = "";
-              }
+              resetEventsView();
               pollEvents();
             });
           }

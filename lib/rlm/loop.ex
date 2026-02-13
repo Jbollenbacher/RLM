@@ -444,7 +444,9 @@ defmodule RLM.Loop do
           child_agent_id,
           model_size,
           byte_size(text),
-          assessment_sampled: assessment_sampled
+          assessment_sampled: assessment_sampled,
+          text_chars: String.length(text),
+          query_preview: RLM.Truncate.truncate(text, head: 220, tail: 220)
         )
 
         RLM.run(
