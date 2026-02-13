@@ -60,3 +60,10 @@ end
 if lm_query_timeout = System.get_env("RLM_LM_QUERY_TIMEOUT") do
   config :rlm, lm_query_timeout: String.to_integer(lm_query_timeout)
 end
+
+if subagent_assessment_sample_rate = System.get_env("RLM_SUBAGENT_ASSESSMENT_SAMPLE_RATE") do
+  case Float.parse(subagent_assessment_sample_rate) do
+    {value, _} -> config :rlm, subagent_assessment_sample_rate: value
+    _ -> :ok
+  end
+end

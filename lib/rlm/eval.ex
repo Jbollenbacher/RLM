@@ -8,6 +8,14 @@ defmodule RLM.Eval do
   def eval(code, bindings, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, default_eval_timeout_ms())
     lm_query_timeout = Keyword.get(opts, :lm_query_timeout, default_lm_query_timeout_ms())
+
+    subagent_assessment_sample_rate =
+      Keyword.get(
+        opts,
+        :subagent_assessment_sample_rate,
+        default_subagent_assessment_sample_rate()
+      )
+
     agent_id = Keyword.get(opts, :agent_id)
     iteration = Keyword.get(opts, :iteration)
 
@@ -15,20 +23,40 @@ defmodule RLM.Eval do
       :eval,
       %{agent_id: agent_id, iteration: iteration},
       fn ->
-        do_eval(code, bindings, timeout, lm_query_timeout, agent_id)
+        do_eval(
+          code,
+          bindings,
+          timeout,
+          lm_query_timeout,
+          subagent_assessment_sample_rate,
+          agent_id
+        )
       end,
       &eval_status/1
     )
   end
 
-  defp do_eval(code, bindings, timeout, lm_query_timeout, agent_id) do
+  defp do_eval(
+         code,
+         bindings,
+         timeout,
+         lm_query_timeout,
+         subagent_assessment_sample_rate,
+         agent_id
+       ) do
     {:ok, stdout_device} = StringIO.open("")
     {:ok, stderr_device} = StringIO.open("")
     caller = self()
 
     pid =
       spawn(fn ->
-        bridge = start_lm_query_bridge(bindings, lm_query_timeout, agent_id)
+        bridge =
+          start_lm_query_bridge(
+            bindings,
+            lm_query_timeout,
+            subagent_assessment_sample_rate,
+            agent_id
+          )
 
         try do
           with :ok <- ensure_pythonx_runtime() do
@@ -123,7 +151,12 @@ defmodule RLM.Eval do
     |> Map.merge(bridge_globals)
   end
 
-  defp start_lm_query_bridge(bindings, lm_query_timeout, parent_agent_id) do
+  defp start_lm_query_bridge(
+         bindings,
+         lm_query_timeout,
+         subagent_assessment_sample_rate,
+         parent_agent_id
+       ) do
     case Keyword.get(bindings, :lm_query) do
       lm_query_fn when is_function(lm_query_fn, 2) ->
         bridge_parent_agent_id = parent_agent_id || RLM.Helpers.unique_id("eval_agent")
@@ -140,6 +173,7 @@ defmodule RLM.Eval do
               responses_dir,
               lm_query_fn,
               lm_query_timeout,
+              subagent_assessment_sample_rate,
               bridge_parent_agent_id
             )
           end)
@@ -182,7 +216,14 @@ defmodule RLM.Eval do
     :ok
   end
 
-  defp bridge_loop(requests_dir, responses_dir, lm_query_fn, default_timeout_ms, parent_agent_id) do
+  defp bridge_loop(
+         requests_dir,
+         responses_dir,
+         lm_query_fn,
+         default_timeout_ms,
+         subagent_assessment_sample_rate,
+         parent_agent_id
+       ) do
     receive do
       {:stop, caller} ->
         send(caller, {:bridge_stopped, self()})
@@ -197,14 +238,29 @@ defmodule RLM.Eval do
           responses_dir,
           lm_query_fn,
           default_timeout_ms,
+          subagent_assessment_sample_rate,
           parent_agent_id
         )
 
-        bridge_loop(requests_dir, responses_dir, lm_query_fn, default_timeout_ms, parent_agent_id)
+        bridge_loop(
+          requests_dir,
+          responses_dir,
+          lm_query_fn,
+          default_timeout_ms,
+          subagent_assessment_sample_rate,
+          parent_agent_id
+        )
     end
   end
 
-  defp process_requests(requests_dir, responses_dir, lm_query_fn, default_timeout_ms, parent_agent_id) do
+  defp process_requests(
+         requests_dir,
+         responses_dir,
+         lm_query_fn,
+         default_timeout_ms,
+         subagent_assessment_sample_rate,
+         parent_agent_id
+       ) do
     case File.ls(requests_dir) do
       {:ok, entries} ->
         entries
@@ -220,6 +276,7 @@ defmodule RLM.Eval do
                 payload,
                 lm_query_fn,
                 default_timeout_ms,
+                subagent_assessment_sample_rate,
                 parent_agent_id
               )
 
@@ -233,7 +290,13 @@ defmodule RLM.Eval do
     end
   end
 
-  defp handle_lm_query_request(payload, lm_query_fn, default_timeout_ms, parent_agent_id)
+  defp handle_lm_query_request(
+         payload,
+         lm_query_fn,
+         default_timeout_ms,
+         subagent_assessment_sample_rate,
+         parent_agent_id
+       )
        when is_map(payload) do
     op =
       payload
@@ -242,13 +305,22 @@ defmodule RLM.Eval do
 
     case op do
       "dispatch" ->
-        handle_dispatch_request(payload, lm_query_fn, default_timeout_ms, parent_agent_id)
+        handle_dispatch_request(
+          payload,
+          lm_query_fn,
+          default_timeout_ms,
+          subagent_assessment_sample_rate,
+          parent_agent_id
+        )
 
       "poll" ->
         handle_poll_request(payload, parent_agent_id)
 
       "cancel" ->
         handle_cancel_request(payload, parent_agent_id)
+
+      "assess" ->
+        handle_assess_request(payload, parent_agent_id)
 
       _ ->
         %{"status" => "error", "payload" => "Malformed lm_query request: unsupported op `#{op}`"}
@@ -258,7 +330,13 @@ defmodule RLM.Eval do
       %{"status" => "error", "payload" => Exception.message(e)}
   end
 
-  defp handle_lm_query_request(_payload, _lm_query_fn, _default_timeout_ms, _parent_agent_id) do
+  defp handle_lm_query_request(
+         _payload,
+         _lm_query_fn,
+         _default_timeout_ms,
+         _subagent_assessment_sample_rate,
+         _parent_agent_id
+       ) do
     %{"status" => "error", "payload" => "Malformed lm_query request"}
   end
 
@@ -266,19 +344,23 @@ defmodule RLM.Eval do
          %{"text" => text, "model_size" => model_size} = payload,
          lm_query_fn,
          default_timeout_ms,
+         subagent_assessment_sample_rate,
          parent_agent_id
        )
        when is_binary(text) and is_binary(parent_agent_id) do
     timeout_ms = parse_timeout_ms(Map.get(payload, "timeout_ms"), default_timeout_ms)
     child_agent_id = Map.get(payload, "child_agent_id", RLM.Helpers.unique_id("agent"))
+    assessment_sampled = sample_assessment?(subagent_assessment_sample_rate)
 
     opts = [
       model_size: parse_model_size(model_size),
-      child_agent_id: child_agent_id
+      child_agent_id: child_agent_id,
+      assessment_sampled: assessment_sampled
     ]
 
     case RLM.Subagent.Broker.dispatch(parent_agent_id, text, opts, lm_query_fn,
-           timeout_ms: timeout_ms
+           timeout_ms: timeout_ms,
+           assessment_sampled: assessment_sampled
          ) do
       {:ok, returned_child_agent_id} ->
         %{"status" => "ok", "payload" => returned_child_agent_id}
@@ -288,7 +370,13 @@ defmodule RLM.Eval do
     end
   end
 
-  defp handle_dispatch_request(_payload, _lm_query_fn, _default_timeout_ms, _parent_agent_id) do
+  defp handle_dispatch_request(
+         _payload,
+         _lm_query_fn,
+         _default_timeout_ms,
+         _subagent_assessment_sample_rate,
+         _parent_agent_id
+       ) do
     %{"status" => "error", "payload" => "Malformed lm_query dispatch request"}
   end
 
@@ -320,6 +408,36 @@ defmodule RLM.Eval do
 
   defp handle_cancel_request(_payload, _parent_agent_id) do
     %{"status" => "error", "payload" => "Malformed cancel_lm_query request"}
+  end
+
+  defp handle_assess_request(
+         %{"child_agent_id" => child_agent_id, "verdict" => verdict} = payload,
+         parent_agent_id
+       )
+       when is_binary(child_agent_id) and is_binary(parent_agent_id) do
+    reason = Map.get(payload, "reason", "") |> to_string()
+
+    with {:ok, verdict} <- parse_assessment_verdict(verdict),
+         {:ok, state} <-
+           RLM.Subagent.Broker.assess(parent_agent_id, child_agent_id, verdict, reason) do
+      if assessment = Map.get(state, :assessment) do
+        RLM.Observability.subagent_assessment(
+          parent_agent_id,
+          child_agent_id,
+          assessment.verdict,
+          assessment.reason
+        )
+      end
+
+      %{"status" => "ok", "payload" => json_term(state)}
+    else
+      {:error, reason} ->
+        %{"status" => "error", "payload" => json_term(reason)}
+    end
+  end
+
+  defp handle_assess_request(_payload, _parent_agent_id) do
+    %{"status" => "error", "payload" => "Malformed assess_lm_query request"}
   end
 
   defp write_json_atomic(path, payload) do
@@ -365,6 +483,43 @@ defmodule RLM.Eval do
 
   defp normalize_timeout(timeout) when is_integer(timeout) and timeout > 0, do: timeout
   defp normalize_timeout(_timeout), do: default_lm_query_timeout_ms()
+
+  defp parse_assessment_verdict(verdict) when is_atom(verdict) do
+    parse_assessment_verdict(Atom.to_string(verdict))
+  end
+
+  defp parse_assessment_verdict(verdict) when is_binary(verdict) do
+    case verdict |> String.trim() |> String.downcase() do
+      "satisfied" -> {:ok, :satisfied}
+      "dissatisfied" -> {:ok, :dissatisfied}
+      other -> {:error, "Invalid verdict `#{other}`. Use `satisfied` or `dissatisfied`."}
+    end
+  end
+
+  defp parse_assessment_verdict(_verdict) do
+    {:error, "Invalid verdict. Use `satisfied` or `dissatisfied`."}
+  end
+
+  defp sample_assessment?(rate) do
+    normalized = normalize_sample_rate(rate)
+    normalized > 0 and :rand.uniform() <= normalized
+  end
+
+  defp normalize_sample_rate(rate) when is_float(rate), do: clamp_sample_rate(rate)
+  defp normalize_sample_rate(rate) when is_integer(rate), do: clamp_sample_rate(rate * 1.0)
+
+  defp normalize_sample_rate(rate) when is_binary(rate) do
+    case Float.parse(rate) do
+      {parsed, _} -> clamp_sample_rate(parsed)
+      _ -> 0.25
+    end
+  end
+
+  defp normalize_sample_rate(_), do: 0.25
+
+  defp clamp_sample_rate(rate) when rate < 0.0, do: 0.0
+  defp clamp_sample_rate(rate) when rate > 1.0, do: 1.0
+  defp clamp_sample_rate(rate), do: rate
 
   defp json_term(value)
        when is_binary(value) or is_number(value) or is_boolean(value) or is_nil(value),
@@ -416,8 +571,12 @@ defmodule RLM.Eval do
   defp normalize_final_answer(other), do: {:ok, other}
 
   defp normalize_status_payload(status, payload) when status in ["ok", :ok], do: {:ok, payload}
-  defp normalize_status_payload(status, payload) when status in ["error", :error], do: {:error, payload}
-  defp normalize_status_payload(status, payload), do: {:invalid, %{status: status, payload: payload}}
+
+  defp normalize_status_payload(status, payload) when status in ["error", :error],
+    do: {:error, payload}
+
+  defp normalize_status_payload(status, payload),
+    do: {:invalid, %{status: status, payload: payload}}
 
   defp ensure_pythonx_runtime do
     case Application.ensure_all_started(:pythonx) do
@@ -495,6 +654,12 @@ defmodule RLM.Eval do
 
   defp default_lm_query_timeout_ms do
     Application.get_env(:rlm, :lm_query_timeout, default_eval_timeout_ms())
+  end
+
+  defp default_subagent_assessment_sample_rate do
+    :rlm
+    |> Application.get_env(:subagent_assessment_sample_rate, 0.25)
+    |> normalize_sample_rate()
   end
 
   defp python_prelude, do: @python_prelude

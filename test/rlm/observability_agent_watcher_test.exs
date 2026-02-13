@@ -26,7 +26,9 @@ defmodule RLM.ObservabilityAgentWatcherTest do
     assert_eventually(fn ->
       case Store.get_agent("agent_watch_1") do
         %{status: :error} ->
-          events = Store.list_events(agent_id: "agent_watch_1", since_ts: 0, since_id: 0, limit: 20)
+          events =
+            Store.list_events(agent_id: "agent_watch_1", since_ts: 0, since_id: 0, limit: 20)
+
           Enum.any?(events, &(&1.type == :agent_end && Map.get(&1.payload, :source) == :pid_down))
 
         _ ->

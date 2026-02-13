@@ -91,13 +91,33 @@ defmodule RLM.Observability do
     :ok
   end
 
-  @spec child_query(String.t(), String.t(), atom(), non_neg_integer()) :: :ok
-  def child_query(parent_agent_id, child_agent_id, model_size, text_bytes) do
+  @spec child_query(String.t(), String.t(), atom(), non_neg_integer(), keyword()) :: :ok
+  def child_query(parent_agent_id, child_agent_id, model_size, text_bytes, opts \\ []) do
     emit([:rlm, :lm_query], %{}, %{
       agent_id: parent_agent_id,
       child_agent_id: child_agent_id,
       model_size: model_size,
-      text_bytes: text_bytes
+      text_bytes: text_bytes,
+      assessment_sampled: Keyword.get(opts, :assessment_sampled, false)
+    })
+  end
+
+  @spec subagent_assessment(String.t(), String.t(), atom(), String.t()) :: :ok
+  def subagent_assessment(parent_agent_id, child_agent_id, verdict, reason) do
+    emit([:rlm, :subagent_assessment], %{}, %{
+      agent_id: parent_agent_id,
+      child_agent_id: child_agent_id,
+      verdict: verdict,
+      reason: reason
+    })
+  end
+
+  @spec subagent_assessment_missing(String.t(), String.t(), atom()) :: :ok
+  def subagent_assessment_missing(parent_agent_id, child_agent_id, status) do
+    emit([:rlm, :subagent_assessment, :missing], %{}, %{
+      agent_id: parent_agent_id,
+      child_agent_id: child_agent_id,
+      status: status
     })
   end
 

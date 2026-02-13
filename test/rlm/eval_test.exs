@@ -135,5 +135,41 @@ except Exception as exc:
 
       assert stdout =~ "killed"
     end
+
+    test "sampled terminal jobs can be assessed" do
+      {:ok, stdout, _result, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+job_id = lm_query("subtask")
+_ = await_lm_query(job_id, timeout_ms=1_000)
+state = assess_lm_query(job_id, "satisfied", reason="useful result")
+print(state.get("assessment", {}).get("verdict"))
+],
+          lm_query: fn _text, _opts -> {:ok, "done"} end,
+          subagent_assessment_sample_rate: 1.0
+        )
+
+      assert stdout =~ "satisfied"
+    end
+
+    test "assess_lm_query errors when job has not terminated" do
+      {:ok, stdout, _result, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+job_id = lm_query("slow-subtask")
+try:
+    assess_lm_query(job_id, "dissatisfied", reason="premature")
+except Exception as exc:
+    print(exc)
+],
+          lm_query: fn _text, _opts ->
+            Process.sleep(300)
+            {:ok, "done"}
+          end,
+          subagent_assessment_sample_rate: 1.0
+        )
+
+      assert stdout =~ "still running"
+    end
   end
 end

@@ -164,7 +164,12 @@ defmodule RLM.Observability.Chat do
           error_text = "Error: generation failed (#{inspect(reason)})"
           state = %{state | running: nil}
           {_, state} = append_message(state, :assistant, error_text)
-          emit_agent_status(state.session.id, :error, %{source: :chat_down, reason: inspect(reason)})
+
+          emit_agent_status(state.session.id, :error, %{
+            source: :chat_down,
+            reason: inspect(reason)
+          })
+
           {:noreply, state}
         end
 

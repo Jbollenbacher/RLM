@@ -14,6 +14,7 @@ defmodule RLM.Loop do
       Logger.info("[RLM] depth=#{depth} iteration=#{iteration}")
 
       {history, bindings} = maybe_compact(history, bindings, model, config, agent_id)
+      history = maybe_inject_subagent_return_messages(history, config, agent_id)
 
       snapshot_iteration(agent_id, iteration, history, config, bindings)
 
@@ -166,6 +167,71 @@ defmodule RLM.Loop do
   defp normalize_answer(term),
     do: inspect(term, pretty: true, limit: :infinity, printable_limit: :infinity)
 
+  defp maybe_inject_subagent_return_messages(history, _config, nil), do: history
+
+  defp maybe_inject_subagent_return_messages(history, config, agent_id) do
+    case RLM.Subagent.Broker.drain_updates(agent_id) do
+      [] ->
+        history
+
+      updates ->
+        message = subagent_return_message(updates, config)
+        history ++ [%{role: :user, content: message}]
+    end
+  end
+
+  defp subagent_return_message(updates, config) do
+    body =
+      updates
+      |> Enum.map_join("\n\n---\n\n", fn update ->
+        id = Map.get(update, :child_agent_id)
+        status = Map.get(update, :state)
+        preview = preview_subagent_payload(Map.get(update, :payload), config)
+
+        completion_note =
+          if Map.get(update, :completion_update), do: "completion update", else: nil
+
+        assessment_note =
+          cond do
+            Map.get(update, :assessment_required) and not Map.get(update, :assessment_recorded) ->
+              "assessment required: call assess_lm_query(\"#{id}\", \"satisfied\"|\"dissatisfied\", reason=\"...\")"
+
+            Map.get(update, :assessment_update) ->
+              "assessment reminder: update now requires assessment after polling"
+
+            true ->
+              nil
+          end
+
+        [
+          "child_agent_id: #{id}",
+          "status: #{status}",
+          "preview:",
+          preview,
+          completion_note,
+          assessment_note
+        ]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join("\n")
+      end)
+
+    "[SUBAGENT_RETURN]\n" <> body
+  end
+
+  defp preview_subagent_payload(payload, config) do
+    text =
+      if is_binary(payload) do
+        payload
+      else
+        inspect(payload, pretty: true, limit: 20, printable_limit: 4000)
+      end
+
+    RLM.Truncate.truncate(text,
+      head: min(400, config.truncation_head),
+      tail: min(400, config.truncation_tail)
+    )
+  end
+
   defp snapshot_iteration(agent_id, iteration, history, config, bindings) do
     compacted? = Keyword.get(bindings, :compacted_history, "") != ""
 
@@ -219,6 +285,7 @@ defmodule RLM.Loop do
           case RLM.Eval.eval(code, bindings,
                  timeout: config.eval_timeout,
                  lm_query_timeout: config.lm_query_timeout,
+                 subagent_assessment_sample_rate: config.subagent_assessment_sample_rate,
                  agent_id: agent_id,
                  iteration: iteration
                ) do
@@ -367,12 +434,14 @@ defmodule RLM.Loop do
         {:error, "Maximum recursion depth (#{config.max_depth}) exceeded"}
       else
         child_agent_id = Keyword.get(opts, :child_agent_id, RLM.Helpers.unique_id("agent"))
+        assessment_sampled = Keyword.get(opts, :assessment_sampled, false)
 
         RLM.Observability.child_query(
           parent_agent_id,
           child_agent_id,
           model_size,
-          byte_size(text)
+          byte_size(text),
+          assessment_sampled: assessment_sampled
         )
 
         RLM.run(

@@ -8,9 +8,26 @@ defmodule RLM.Subagent.Broker do
 
   @type poll_state ::
           %{state: :running}
-          | %{state: :ok, payload: term()}
-          | %{state: :error, payload: term()}
-          | %{state: :cancelled, payload: term()}
+          | %{
+              state: :ok | :error | :cancelled,
+              payload: term(),
+              assessment_required: boolean(),
+              assessment_recorded: boolean(),
+              assessment: map() | nil
+            }
+
+  @type assessment_verdict :: :satisfied | :dissatisfied
+
+  @type push_update :: %{
+          child_agent_id: child_id(),
+          state: :ok | :error | :cancelled,
+          payload: term(),
+          assessment_required: boolean(),
+          assessment_recorded: boolean(),
+          assessment: map() | nil,
+          completion_update: boolean(),
+          assessment_update: boolean()
+        }
 
   @type job :: %{
           parent_id: parent_id(),
@@ -22,7 +39,12 @@ defmodule RLM.Subagent.Broker do
           timeout_ref: reference() | nil,
           timeout_ms: pos_integer(),
           inserted_at: integer(),
-          updated_at: integer()
+          updated_at: integer(),
+          assessment_sampled: boolean(),
+          polled: boolean(),
+          assessment: map() | nil,
+          completion_notified: boolean(),
+          assessment_prompt_pending: boolean()
         }
 
   @name __MODULE__
@@ -35,17 +57,23 @@ defmodule RLM.Subagent.Broker do
   @spec dispatch(parent_id(), String.t(), keyword(), function(), keyword()) ::
           {:ok, child_id()} | {:error, String.t()}
   def dispatch(parent_id, text, lm_opts, lm_query_fn, opts \\ [])
-      when is_binary(parent_id) and is_binary(text) and is_list(lm_opts) and is_function(lm_query_fn, 2) do
+      when is_binary(parent_id) and is_binary(text) and is_list(lm_opts) and
+             is_function(lm_query_fn, 2) do
     timeout_ms = Keyword.fetch!(opts, :timeout_ms)
     child_id = Keyword.get(lm_opts, :child_agent_id, RLM.Helpers.unique_id("agent"))
     lm_opts = Keyword.put(lm_opts, :child_agent_id, child_id)
+    assessment_sampled = Keyword.get(opts, :assessment_sampled, false)
 
     case Process.whereis(@name) do
       nil ->
         {:error, "Subagent broker is not running"}
 
       _ ->
-        GenServer.call(@name, {:dispatch, parent_id, child_id, text, lm_opts, lm_query_fn, timeout_ms})
+        GenServer.call(
+          @name,
+          {:dispatch, parent_id, child_id, text, lm_opts, lm_query_fn, timeout_ms,
+           assessment_sampled}
+        )
     end
   end
 
@@ -65,6 +93,33 @@ defmodule RLM.Subagent.Broker do
     end
   end
 
+  @spec assess(parent_id(), child_id(), assessment_verdict(), String.t()) ::
+          {:ok, poll_state()} | {:error, String.t()}
+  def assess(parent_id, child_id, verdict, reason \\ "")
+      when is_binary(parent_id) and is_binary(child_id) and
+             verdict in [:satisfied, :dissatisfied] and is_binary(reason) do
+    case Process.whereis(@name) do
+      nil -> {:error, "Subagent broker is not running"}
+      _ -> GenServer.call(@name, {:assess, parent_id, child_id, verdict, reason})
+    end
+  end
+
+  @spec pending_assessments(parent_id()) :: [map()]
+  def pending_assessments(parent_id) when is_binary(parent_id) do
+    case Process.whereis(@name) do
+      nil -> []
+      _ -> GenServer.call(@name, {:pending_assessments, parent_id})
+    end
+  end
+
+  @spec drain_updates(parent_id()) :: [push_update()]
+  def drain_updates(parent_id) when is_binary(parent_id) do
+    case Process.whereis(@name) do
+      nil -> []
+      _ -> GenServer.call(@name, {:drain_updates, parent_id})
+    end
+  end
+
   @spec cancel_all(parent_id()) :: :ok
   def cancel_all(parent_id) when is_binary(parent_id) do
     case Process.whereis(@name) do
@@ -80,7 +135,8 @@ defmodule RLM.Subagent.Broker do
 
   @impl true
   def handle_call(
-        {:dispatch, parent_id, child_id, text, lm_opts, lm_query_fn, timeout_ms},
+        {:dispatch, parent_id, child_id, text, lm_opts, lm_query_fn, timeout_ms,
+         assessment_sampled},
         _from,
         state
       ) do
@@ -118,7 +174,12 @@ defmodule RLM.Subagent.Broker do
           timeout_ref: timeout_ref,
           timeout_ms: timeout_ms,
           inserted_at: now,
-          updated_at: now
+          updated_at: now,
+          assessment_sampled: assessment_sampled,
+          polled: false,
+          assessment: nil,
+          completion_notified: false,
+          assessment_prompt_pending: false
         }
 
         state = put_job(state, key, job)
@@ -132,25 +193,14 @@ defmodule RLM.Subagent.Broker do
   def handle_call({:poll, parent_id, child_id}, _from, state) do
     key = {parent_id, child_id}
 
-    reply =
-      case Map.get(state.jobs, key) do
-        nil ->
-          {:error, "Unknown lm_query id: #{child_id}"}
+    case Map.get(state.jobs, key) do
+      nil ->
+        {:reply, {:error, "Unknown lm_query id: #{child_id}"}, state}
 
-        %{status: :running} ->
-          {:ok, %{state: :running}}
-
-        %{status: :ok, payload: payload} ->
-          {:ok, %{state: :ok, payload: payload}}
-
-        %{status: :error, payload: payload} ->
-          {:ok, %{state: :error, payload: payload}}
-
-        %{status: :cancelled, payload: payload} ->
-          {:ok, %{state: :cancelled, payload: payload}}
-      end
-
-    {:reply, reply, state}
+      job ->
+        {state, job} = mark_polled(state, key, job)
+        {:reply, {:ok, to_poll_state(job)}, state}
+    end
   end
 
   def handle_call({:cancel, parent_id, child_id}, _from, state) do
@@ -161,18 +211,108 @@ defmodule RLM.Subagent.Broker do
         {:reply, {:error, "Unknown lm_query id: #{child_id}"}, state}
 
       %{status: :running} = job ->
+        {state, job} = mark_polled(state, key, job)
         state = cancel_job(state, key, job, "Subagent cancelled by parent")
-        {:reply, {:ok, %{state: :cancelled, payload: "Subagent cancelled by parent"}}, state}
+        {:reply, {:ok, to_poll_state(Map.fetch!(state.jobs, key))}, state}
 
-      %{status: :ok, payload: payload} ->
-        {:reply, {:ok, %{state: :ok, payload: payload}}, state}
-
-      %{status: :error, payload: payload} ->
-        {:reply, {:ok, %{state: :error, payload: payload}}, state}
-
-      %{status: :cancelled, payload: payload} ->
-        {:reply, {:ok, %{state: :cancelled, payload: payload}}, state}
+      job ->
+        {state, job} = mark_polled(state, key, job)
+        {:reply, {:ok, to_poll_state(job)}, state}
     end
+  end
+
+  def handle_call({:assess, parent_id, child_id, verdict, reason}, _from, state) do
+    key = {parent_id, child_id}
+
+    case Map.get(state.jobs, key) do
+      nil ->
+        {:reply, {:error, "Unknown lm_query id: #{child_id}"}, state}
+
+      %{status: :running} ->
+        {:reply,
+         {:error,
+          "Cannot assess lm_query id `#{child_id}` while subagent is still running. Wait for termination via poll_lm_query/await_lm_query/cancel_lm_query first."},
+         state}
+
+      job ->
+        now = System.system_time(:millisecond)
+
+        assessment = %{
+          verdict: verdict,
+          reason: reason,
+          ts: now
+        }
+
+        job = %{job | assessment: assessment, assessment_prompt_pending: false, updated_at: now}
+        state = put_job(state, key, job)
+        {:reply, {:ok, to_poll_state(job)}, state}
+    end
+  end
+
+  def handle_call({:pending_assessments, parent_id}, _from, state) do
+    pending =
+      state.by_parent
+      |> Map.get(parent_id, MapSet.new())
+      |> MapSet.to_list()
+      |> Enum.map(fn child_id ->
+        key = {parent_id, child_id}
+        Map.get(state.jobs, key)
+      end)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(&(assessment_required?(&1) and is_nil(&1.assessment)))
+      |> Enum.map(fn job ->
+        %{
+          child_agent_id: job.child_id,
+          status: job.status
+        }
+      end)
+
+    {:reply, pending, state}
+  end
+
+  def handle_call({:drain_updates, parent_id}, _from, state) do
+    child_ids =
+      state.by_parent
+      |> Map.get(parent_id, MapSet.new())
+      |> MapSet.to_list()
+
+    {state, updates} =
+      Enum.reduce(child_ids, {state, []}, fn child_id, {acc_state, acc_updates} ->
+        key = {parent_id, child_id}
+        job = Map.get(acc_state.jobs, key)
+
+        if is_nil(job) or job.status == :running do
+          {acc_state, acc_updates}
+        else
+          completion_update = not Map.get(job, :completion_notified, false)
+          assessment_update = Map.get(job, :assessment_prompt_pending, false)
+
+          if completion_update or assessment_update do
+            update =
+              build_push_update(
+                job,
+                completion_update: completion_update,
+                assessment_update: assessment_update
+              )
+
+            now = System.system_time(:millisecond)
+
+            updated_job = %{
+              job
+              | completion_notified: true,
+                assessment_prompt_pending: false,
+                updated_at: now
+            }
+
+            {put_job(acc_state, key, updated_job), acc_updates ++ [update]}
+          else
+            {acc_state, acc_updates}
+          end
+        end
+      end)
+
+    updates = Enum.sort_by(updates, &{Map.get(&1, :child_agent_id), Map.get(&1, :state)})
+    {:reply, updates, state}
   end
 
   @impl true
@@ -260,61 +400,116 @@ defmodule RLM.Subagent.Broker do
     finalize_job(state, key, job, :error, payload)
   end
 
-  defp finalize_job(state, key, job, status, payload) do
-    cancel_timeout(job.timeout_ref)
-    demonitor_job(job.monitor_ref)
+  defp finalize_job(state, key, job, status, payload)
+       when status in [:ok, :error, :cancelled] do
+    now = System.system_time(:millisecond)
+    timeout_ref = Map.get(job, :timeout_ref)
+    if is_reference(timeout_ref), do: Process.cancel_timer(timeout_ref)
+    monitor_ref = Map.get(job, :monitor_ref)
+    if is_reference(monitor_ref), do: Process.demonitor(monitor_ref, [:flush])
 
-    updated =
+    updated = %{
       job
-      |> Map.put(:status, status)
-      |> Map.put(:payload, payload)
-      |> Map.put(:worker_pid, nil)
-      |> Map.put(:monitor_ref, nil)
-      |> Map.put(:timeout_ref, nil)
-      |> Map.put(:updated_at, System.system_time(:millisecond))
+      | status: status,
+        payload: payload,
+        worker_pid: nil,
+        monitor_ref: nil,
+        timeout_ref: nil,
+        completion_notified: false,
+        assessment_prompt_pending:
+          assessment_required?(%{job | status: status, payload: payload}),
+        updated_at: now
+    }
 
     put_job(state, key, updated)
   end
 
-  defp cancel_job(state, key, job, payload, status \\ :cancelled) do
-    if is_pid(job.worker_pid) and Process.alive?(job.worker_pid) do
-      Process.exit(job.worker_pid, :kill)
-    end
+  defp cancel_job(state, key, job, payload, status \\ :cancelled)
+       when status in [:cancelled, :error] do
+    if is_pid(job.worker_pid) and Process.alive?(job.worker_pid),
+      do: Process.exit(job.worker_pid, :kill)
 
     finalize_job(state, key, job, status, payload)
   end
 
   defp put_job(state, {parent_id, child_id} = key, job) do
-    by_parent =
-      Map.update(state.by_parent, parent_id, MapSet.new([child_id]), fn ids ->
-        MapSet.put(ids, child_id)
-      end)
+    child_set =
+      state.by_parent
+      |> Map.get(parent_id, MapSet.new())
+      |> MapSet.put(child_id)
 
-    %{state | jobs: Map.put(state.jobs, key, job), by_parent: by_parent}
+    %{
+      state
+      | jobs: Map.put(state.jobs, key, job),
+        by_parent: Map.put(state.by_parent, parent_id, child_set)
+    }
   end
 
   defp delete_parent(state, parent_id) do
-    child_ids = state.by_parent |> Map.get(parent_id, MapSet.new()) |> MapSet.to_list()
+    child_set = Map.get(state.by_parent, parent_id, MapSet.new())
 
     jobs =
-      Enum.reduce(child_ids, state.jobs, fn child_id, acc ->
+      Enum.reduce(child_set, state.jobs, fn child_id, acc ->
         Map.delete(acc, {parent_id, child_id})
       end)
 
     %{state | jobs: jobs, by_parent: Map.delete(state.by_parent, parent_id)}
   end
 
-  defp cancel_timeout(nil), do: :ok
+  defp mark_polled(state, _key, %{polled: true} = job), do: {state, job}
 
-  defp cancel_timeout(ref) when is_reference(ref) do
-    _ = Process.cancel_timer(ref)
-    :ok
+  defp mark_polled(state, key, job) do
+    now = System.system_time(:millisecond)
+
+    updated =
+      %{
+        job
+        | polled: true,
+          assessment_prompt_pending: assessment_required?(%{job | polled: true}),
+          updated_at: now
+      }
+
+    {put_job(state, key, updated), updated}
   end
 
-  defp demonitor_job(nil), do: :ok
+  defp to_poll_state(%{status: :running}) do
+    %{state: :running}
+  end
 
-  defp demonitor_job(ref) when is_reference(ref) do
-    Process.demonitor(ref, [:flush])
-    :ok
+  defp to_poll_state(job) do
+    %{
+      state: job.status,
+      payload: job.payload,
+      assessment_required: assessment_required?(job),
+      assessment_recorded: not is_nil(job.assessment),
+      assessment: normalize_assessment(job.assessment)
+    }
+  end
+
+  defp normalize_assessment(nil), do: nil
+
+  defp normalize_assessment(assessment) do
+    %{
+      verdict: Map.get(assessment, :verdict),
+      reason: Map.get(assessment, :reason),
+      ts: Map.get(assessment, :ts)
+    }
+  end
+
+  defp assessment_required?(job) do
+    job.assessment_sampled and job.polled and job.status in [:ok, :error, :cancelled]
+  end
+
+  defp build_push_update(job, opts) do
+    %{
+      child_agent_id: job.child_id,
+      state: job.status,
+      payload: job.payload,
+      assessment_required: assessment_required?(job),
+      assessment_recorded: not is_nil(job.assessment),
+      assessment: normalize_assessment(job.assessment),
+      completion_update: Keyword.get(opts, :completion_update, false),
+      assessment_update: Keyword.get(opts, :assessment_update, false)
+    }
   end
 end

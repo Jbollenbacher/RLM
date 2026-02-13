@@ -237,7 +237,7 @@ def list_bindings():
         "create_file", "create_file_status",
         "ok", "fail",
         "list_bindings",
-        "lm_query", "poll_lm_query", "await_lm_query", "cancel_lm_query",
+        "lm_query", "poll_lm_query", "await_lm_query", "cancel_lm_query", "assess_lm_query",
         "print"
     }
     out = []
@@ -352,12 +352,30 @@ def await_lm_query(child_agent_id, timeout_ms=None, poll_interval_ms=50):
             continue
 
         if kind == "ok":
+            if state.get("assessment_required") and not state.get("assessment_recorded"):
+                _rlm_stderr.write(
+                    f"[RLM] assessment required for {child_agent_id}: "
+                    "call assess_lm_query(child_agent_id, verdict, reason='...') "
+                    "with verdict='satisfied' or 'dissatisfied'.\n"
+                )
             return state.get("payload")
 
         if kind == "error":
+            if state.get("assessment_required") and not state.get("assessment_recorded"):
+                _rlm_stderr.write(
+                    f"[RLM] assessment required for {child_agent_id}: "
+                    "call assess_lm_query(child_agent_id, verdict, reason='...') "
+                    "with verdict='satisfied' or 'dissatisfied'.\n"
+                )
             raise _RLMSubagentCrash(str(state.get("payload", "Subagent failed")))
 
         if kind == "cancelled":
+            if state.get("assessment_required") and not state.get("assessment_recorded"):
+                _rlm_stderr.write(
+                    f"[RLM] assessment required for {child_agent_id}: "
+                    "call assess_lm_query(child_agent_id, verdict, reason='...') "
+                    "with verdict='satisfied' or 'dissatisfied'.\n"
+                )
             raise _RLMSubagentCrash(str(state.get("payload", "Subagent cancelled")))
 
         raise _RLMHelperError(f"Unknown lm_query state for {child_agent_id}: {state}")
@@ -371,3 +389,24 @@ def cancel_lm_query(child_agent_id):
     )
 
     return _rlm_unwrap((response.get("status", "error"), response.get("payload")), "cancel_lm_query")
+
+def assess_lm_query(child_agent_id, verdict, reason=""):
+    verdict_text = str(_rlm_to_text(verdict)).strip().lower()
+    if verdict_text not in ("satisfied", "dissatisfied"):
+        raise _RLMHelperError(
+            "assess_lm_query verdict must be 'satisfied' or 'dissatisfied'"
+        )
+
+    response = _rlm_bridge_request(
+        {
+            "op": "assess",
+            "child_agent_id": _rlm_to_text(child_agent_id),
+            "verdict": verdict_text,
+            "reason": _rlm_to_text(reason)
+        }
+    )
+
+    return _rlm_unwrap(
+        (response.get("status", "error"), response.get("payload")),
+        "assess_lm_query"
+    )

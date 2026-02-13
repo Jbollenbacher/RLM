@@ -15,7 +15,9 @@ defmodule RLM.Observability.Telemetry do
     [:rlm, :eval, :start],
     [:rlm, :eval, :stop],
     [:rlm, :compaction],
-    [:rlm, :lm_query]
+    [:rlm, :lm_query],
+    [:rlm, :subagent_assessment],
+    [:rlm, :subagent_assessment, :missing]
   ]
 
   def attach do
@@ -35,6 +37,15 @@ defmodule RLM.Observability.Telemetry do
   end
 
   def handle_event([:rlm, :agent, :end], _measurements, metadata, _config) do
+    RLM.Subagent.Broker.pending_assessments(metadata.agent_id)
+    |> Enum.each(fn pending ->
+      RLM.Observability.subagent_assessment_missing(
+        metadata.agent_id,
+        pending.child_agent_id,
+        pending.status
+      )
+    end)
+
     Tracker.end_agent(
       metadata.agent_id,
       metadata.status,
@@ -86,6 +97,18 @@ defmodule RLM.Observability.Telemetry do
 
   def handle_event([:rlm, :lm_query], _measurements, metadata, _config) do
     Tracker.record_event(metadata.agent_id, :lm_query, Map.drop(metadata, [:agent_id]))
+  end
+
+  def handle_event([:rlm, :subagent_assessment], _measurements, metadata, _config) do
+    Tracker.record_event(metadata.agent_id, :subagent_assessment, Map.drop(metadata, [:agent_id]))
+  end
+
+  def handle_event([:rlm, :subagent_assessment, :missing], _measurements, metadata, _config) do
+    Tracker.record_event(
+      metadata.agent_id,
+      :subagent_assessment_missing,
+      Map.drop(metadata, [:agent_id])
+    )
   end
 
   def handle_event(_event, _measurements, _metadata, _config), do: :ok
