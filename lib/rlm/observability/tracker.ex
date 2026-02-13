@@ -89,6 +89,9 @@ defmodule RLM.Observability.Tracker do
       String.starts_with?(content, "[PRINCIPAL]") ->
         {"PRINCIPAL", strip_tag(content, "[PRINCIPAL]")}
 
+      String.starts_with?(content, "[SUBAGENT_RETURN]") ->
+        {"SUBAGENT_RETURN", strip_tag(content, "[SUBAGENT_RETURN]")}
+
       true ->
         {"PRINCIPAL", content}
     end

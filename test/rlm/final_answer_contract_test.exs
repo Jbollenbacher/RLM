@@ -37,7 +37,8 @@ defmodule RLM.FinalAnswerContractTest do
     plug(:dispatch)
 
     post "/chat/completions" do
-      body = Jason.encode!(%{choices: [%{message: %{content: "I will answer in plain text only."}}]})
+      body =
+        Jason.encode!(%{choices: [%{message: %{content: "I will answer in plain text only."}}]})
 
       conn
       |> put_resp_content_type("application/json")

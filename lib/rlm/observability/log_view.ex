@@ -8,6 +8,8 @@ defmodule RLM.Observability.LogView do
                         :llm,
                         :eval,
                         :lm_query,
+                        :subagent_assessment,
+                        :subagent_assessment_missing,
                         :compaction,
                         :principal_interrupt
                       ])

@@ -79,7 +79,7 @@ mix rlm --web --web-port 4005
 
 - `RLM.Loop` — Main orchestration loop (REPL driver)
 - `RLM.Eval` — Pythonx-backed code evaluation with IO capture
-- `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, `lm_query`, and optional workspace access helpers)
+- `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, async `lm_query` with `poll_lm_query`/`await_lm_query`/`cancel_lm_query`, `assess_lm_query`, and optional workspace access helpers)
 - `RLM.LLM` — OpenAI-compatible API client (via Req)
 - `RLM.Truncate` — Head+tail truncation to bound context size
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings

@@ -85,6 +85,125 @@ defmodule RLM.SubagentBrokerTest do
     end)
   end
 
+  test "assessment is required only for sampled and polled terminal jobs" do
+    parent_id = "parent_#{System.unique_integer([:positive, :monotonic])}"
+
+    lm_query_fn = fn _text, _opts ->
+      {:ok, "done"}
+    end
+
+    assert {:ok, child_id} =
+             RLM.Subagent.Broker.dispatch(
+               parent_id,
+               "task",
+               [model_size: :small],
+               lm_query_fn,
+               timeout_ms: 1_000,
+               assessment_sampled: true
+             )
+
+    assert_eventually(fn ->
+      match?({:ok, %{state: :ok}}, RLM.Subagent.Broker.poll(parent_id, child_id))
+    end)
+
+    assert [%{child_agent_id: ^child_id}] = RLM.Subagent.Broker.pending_assessments(parent_id)
+
+    assert {:ok, %{assessment: %{verdict: :satisfied, reason: "useful"}}} =
+             RLM.Subagent.Broker.assess(parent_id, child_id, :satisfied, "useful")
+
+    assert [] == RLM.Subagent.Broker.pending_assessments(parent_id)
+  end
+
+  test "assess fails while job is running" do
+    parent_id = "parent_#{System.unique_integer([:positive, :monotonic])}"
+
+    lm_query_fn = fn _text, _opts ->
+      Process.sleep(200)
+      {:ok, "done"}
+    end
+
+    assert {:ok, child_id} =
+             RLM.Subagent.Broker.dispatch(
+               parent_id,
+               "task",
+               [model_size: :small],
+               lm_query_fn,
+               timeout_ms: 1_000,
+               assessment_sampled: true
+             )
+
+    assert {:error, reason} =
+             RLM.Subagent.Broker.assess(parent_id, child_id, :dissatisfied, "too early")
+
+    assert reason =~ "still running"
+  end
+
+  test "drain_updates returns terminal completion updates once" do
+    parent_id = "parent_#{System.unique_integer([:positive, :monotonic])}"
+
+    lm_query_fn = fn _text, _opts ->
+      {:ok, "done"}
+    end
+
+    assert {:ok, child_id} =
+             RLM.Subagent.Broker.dispatch(
+               parent_id,
+               "task",
+               [model_size: :small],
+               lm_query_fn,
+               timeout_ms: 1_000
+             )
+
+    assert_eventually(fn ->
+      case RLM.Subagent.Broker.drain_updates(parent_id) do
+        [%{child_agent_id: ^child_id, state: :ok, completion_update: true}] -> true
+        _ -> false
+      end
+    end)
+
+    assert [] == RLM.Subagent.Broker.drain_updates(parent_id)
+  end
+
+  test "drain_updates sends an assessment reminder update after terminal poll" do
+    parent_id = "parent_#{System.unique_integer([:positive, :monotonic])}"
+
+    lm_query_fn = fn _text, _opts ->
+      {:ok, "done"}
+    end
+
+    assert {:ok, child_id} =
+             RLM.Subagent.Broker.dispatch(
+               parent_id,
+               "task",
+               [model_size: :small],
+               lm_query_fn,
+               timeout_ms: 1_000,
+               assessment_sampled: true
+             )
+
+    assert_eventually(fn ->
+      case RLM.Subagent.Broker.drain_updates(parent_id) do
+        [%{child_agent_id: ^child_id, completion_update: true, assessment_required: false}] ->
+          true
+
+        _ ->
+          false
+      end
+    end)
+
+    assert {:ok, %{state: :ok, assessment_required: true}} =
+             RLM.Subagent.Broker.poll(parent_id, child_id)
+
+    assert [
+             %{
+               child_agent_id: ^child_id,
+               completion_update: false,
+               assessment_update: true,
+               assessment_required: true
+             }
+           ] = RLM.Subagent.Broker.drain_updates(parent_id)
+  end
+
   defp assert_eventually(fun, attempts \\ 60)
 
   defp assert_eventually(fun, attempts) when attempts > 0 do

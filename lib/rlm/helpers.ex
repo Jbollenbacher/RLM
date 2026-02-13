@@ -33,4 +33,10 @@ defmodule RLM.Helpers do
         {:ok, message}
     end
   end
+
+  @spec format_value(term()) :: String.t()
+  def format_value(value) when is_binary(value), do: value
+
+  def format_value(value),
+    do: inspect(value, pretty: true, limit: :infinity, printable_limit: :infinity)
 end

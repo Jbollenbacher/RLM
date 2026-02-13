@@ -21,42 +21,42 @@ if File.exists?(".env") do
   end)
 end
 
-if api_base_url = System.get_env("RLM_API_BASE_URL") do
-  config :rlm, api_base_url: api_base_url
+parse_string = fn value -> {:ok, value} end
+
+parse_int = fn value ->
+  if Regex.match?(~r/^\d+$/, value), do: {:ok, String.to_integer(value)}, else: :error
 end
 
-if api_key = System.get_env("OPENROUTER_API_KEY") do
-  config :rlm, api_key: api_key
+parse_float = fn value ->
+  case Float.parse(value) do
+    {parsed, _} -> {:ok, parsed}
+    _ -> :error
+  end
 end
 
-if model_large = System.get_env("RLM_MODEL_LARGE") do
-  config :rlm, model_large: model_large
-end
+overrides = [
+  {"RLM_API_BASE_URL", :api_base_url, parse_string},
+  {"OPENROUTER_API_KEY", :api_key, parse_string},
+  {"RLM_MODEL_LARGE", :model_large, parse_string},
+  {"RLM_MODEL_SMALL", :model_small, parse_string},
+  {"RLM_MAX_ITERATIONS", :max_iterations, parse_int},
+  {"RLM_MAX_DEPTH", :max_depth, parse_int},
+  {"RLM_TRUNCATION_HEAD", :truncation_head, parse_int},
+  {"RLM_TRUNCATION_TAIL", :truncation_tail, parse_int},
+  {"RLM_EVAL_TIMEOUT", :eval_timeout, parse_int},
+  {"RLM_LM_QUERY_TIMEOUT", :lm_query_timeout, parse_int},
+  {"RLM_SUBAGENT_ASSESSMENT_SAMPLE_RATE", :subagent_assessment_sample_rate, parse_float}
+]
 
-if model_small = System.get_env("RLM_MODEL_SMALL") do
-  config :rlm, model_small: model_small
-end
+Enum.each(overrides, fn {env_name, key, parser} ->
+  case System.get_env(env_name) do
+    nil ->
+      :ok
 
-if max_iterations = System.get_env("RLM_MAX_ITERATIONS") do
-  config :rlm, max_iterations: String.to_integer(max_iterations)
-end
-
-if max_depth = System.get_env("RLM_MAX_DEPTH") do
-  config :rlm, max_depth: String.to_integer(max_depth)
-end
-
-if truncation_head = System.get_env("RLM_TRUNCATION_HEAD") do
-  config :rlm, truncation_head: String.to_integer(truncation_head)
-end
-
-if truncation_tail = System.get_env("RLM_TRUNCATION_TAIL") do
-  config :rlm, truncation_tail: String.to_integer(truncation_tail)
-end
-
-if eval_timeout = System.get_env("RLM_EVAL_TIMEOUT") do
-  config :rlm, eval_timeout: String.to_integer(eval_timeout)
-end
-
-if lm_query_timeout = System.get_env("RLM_LM_QUERY_TIMEOUT") do
-  config :rlm, lm_query_timeout: String.to_integer(lm_query_timeout)
-end
+    value ->
+      case parser.(value) do
+        {:ok, parsed} -> config :rlm, [{key, parsed}]
+        :error -> :ok
+      end
+  end
+end)

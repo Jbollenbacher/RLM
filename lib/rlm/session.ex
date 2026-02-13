@@ -137,13 +137,8 @@ defmodule RLM.Session do
   end
 
   defp append_agent_to_context(context, {:ok, answer}),
-    do: append_turn(context, "Agent", format_message(answer))
+    do: append_turn(context, "Agent", RLM.Helpers.format_value(answer))
 
   defp append_agent_to_context(context, {:error, reason}),
-    do: append_turn(context, "Agent", "Error: #{format_message(reason)}")
-
-  defp format_message(message) when is_binary(message), do: message
-
-  defp format_message(message),
-    do: inspect(message, pretty: true, limit: :infinity, printable_limit: :infinity)
+    do: append_turn(context, "Agent", "Error: #{RLM.Helpers.format_value(reason)}")
 end

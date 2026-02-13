@@ -164,7 +164,12 @@ defmodule RLM.Observability.Chat do
           error_text = "Error: generation failed (#{inspect(reason)})"
           state = %{state | running: nil}
           {_, state} = append_message(state, :assistant, error_text)
-          emit_agent_status(state.session.id, :error, %{source: :chat_down, reason: inspect(reason)})
+
+          emit_agent_status(state.session.id, :error, %{
+            source: :chat_down,
+            reason: inspect(reason)
+          })
+
           {:noreply, state}
         end
 
@@ -241,6 +246,5 @@ defmodule RLM.Observability.Chat do
 
   defp normalize(content) when is_binary(content), do: content
 
-  defp normalize(content),
-    do: inspect(content, pretty: true, limit: :infinity, printable_limit: :infinity)
+  defp normalize(content), do: RLM.Helpers.format_value(content)
 end

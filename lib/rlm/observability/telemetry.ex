@@ -15,7 +15,9 @@ defmodule RLM.Observability.Telemetry do
     [:rlm, :eval, :start],
     [:rlm, :eval, :stop],
     [:rlm, :compaction],
-    [:rlm, :lm_query]
+    [:rlm, :lm_query],
+    [:rlm, :subagent_assessment],
+    [:rlm, :subagent_assessment, :missing]
   ]
 
   def attach do
@@ -35,6 +37,15 @@ defmodule RLM.Observability.Telemetry do
   end
 
   def handle_event([:rlm, :agent, :end], _measurements, metadata, _config) do
+    RLM.Subagent.Broker.pending_assessments(metadata.agent_id)
+    |> Enum.each(fn pending ->
+      RLM.Observability.subagent_assessment_missing(
+        metadata.agent_id,
+        pending.child_agent_id,
+        pending.status
+      )
+    end)
+
     Tracker.end_agent(
       metadata.agent_id,
       metadata.status,
@@ -54,38 +65,31 @@ defmodule RLM.Observability.Telemetry do
   end
 
   def handle_event([:rlm, :iteration, :stop], measurements, metadata, _config) do
-    payload =
-      metadata
-      |> Map.drop([:agent_id])
-      |> Map.merge(measurements)
-
-    Tracker.record_event(metadata.agent_id, :iteration, payload)
+    record_with_measurements(metadata, :iteration, measurements)
   end
 
   def handle_event([:rlm, :llm, :stop], measurements, metadata, _config) do
-    payload =
-      metadata
-      |> Map.drop([:agent_id])
-      |> Map.merge(measurements)
-
-    Tracker.record_event(metadata.agent_id, :llm, payload)
+    record_with_measurements(metadata, :llm, measurements)
   end
 
   def handle_event([:rlm, :eval, :stop], measurements, metadata, _config) do
-    payload =
-      metadata
-      |> Map.drop([:agent_id])
-      |> Map.merge(measurements)
-
-    Tracker.record_event(metadata.agent_id, :eval, payload)
+    record_with_measurements(metadata, :eval, measurements)
   end
 
   def handle_event([:rlm, :compaction], _measurements, metadata, _config) do
-    Tracker.record_event(metadata.agent_id, :compaction, Map.drop(metadata, [:agent_id]))
+    record_metadata(metadata, :compaction)
   end
 
   def handle_event([:rlm, :lm_query], _measurements, metadata, _config) do
-    Tracker.record_event(metadata.agent_id, :lm_query, Map.drop(metadata, [:agent_id]))
+    record_metadata(metadata, :lm_query)
+  end
+
+  def handle_event([:rlm, :subagent_assessment], _measurements, metadata, _config) do
+    record_metadata(metadata, :subagent_assessment)
+  end
+
+  def handle_event([:rlm, :subagent_assessment, :missing], _measurements, metadata, _config) do
+    record_metadata(metadata, :subagent_assessment_missing)
   end
 
   def handle_event(_event, _measurements, _metadata, _config), do: :ok
@@ -95,4 +99,17 @@ defmodule RLM.Observability.Telemetry do
   end
 
   defp maybe_watch_agent_owner(_agent_id, _owner_pid), do: :ok
+
+  defp record_with_measurements(metadata, type, measurements) do
+    payload =
+      metadata
+      |> Map.drop([:agent_id])
+      |> Map.merge(measurements)
+
+    Tracker.record_event(metadata.agent_id, type, payload)
+  end
+
+  defp record_metadata(metadata, type) do
+    Tracker.record_event(metadata.agent_id, type, Map.drop(metadata, [:agent_id]))
+  end
 end

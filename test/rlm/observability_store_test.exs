@@ -98,6 +98,27 @@ defmodule RLM.ObservabilityStoreTest do
     refute String.starts_with?(snapshot.transcript, "[PRINCIPAL]\n[SYSTEM]")
   end
 
+  test "snapshot preserves subagent return label for user runtime notices" do
+    Store.put_agent(%{id: "agent_subret"})
+
+    config =
+      RLM.Config.load(
+        truncation_head: 50,
+        truncation_tail: 50,
+        obs_max_context_window_chars: 10_000
+      )
+
+    RLM.Observability.Tracker.snapshot_context(
+      "agent_subret",
+      0,
+      [%{role: :user, content: "[SUBAGENT_RETURN]\nchild_agent_id: agent_2\nstatus: ok"}],
+      config
+    )
+
+    snapshot = Store.latest_snapshot("agent_subret")
+    assert String.starts_with?(snapshot.transcript, "[SUBAGENT_RETURN]\nchild_agent_id: agent_2")
+  end
+
   test "agent eviction removes events and snapshots" do
     Store.put_agent(%{id: "agent_1"})
     Store.add_event(%{agent_id: "agent_1", type: :a, payload: %{}})
