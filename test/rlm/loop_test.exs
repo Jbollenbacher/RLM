@@ -34,7 +34,7 @@ defmodule RLM.LoopTest do
       result =
         RLM.run(
           "unused",
-          "Print the string 'x' repeated 10000 times using IO.puts, then set final_answer to {:ok, \"done\"}.",
+          "Print the string 'x' repeated 10000 times using print(), then set final_answer = (\"ok\", \"done\").",
           config: RLM.Config.load(max_iterations: 5)
         )
 
@@ -47,7 +47,7 @@ defmodule RLM.LoopTest do
       result =
         RLM.run(
           "unused",
-          "Write code that will cause a runtime error (e.g. 1/0 or raise \"test error\"). After observing the error, set final_answer = {:ok, \"recovered\"}. Do these in separate iterations — first cause the error, then recover.",
+          "Write code that will cause a runtime error (e.g. 1/0 or raise Exception(\"test error\")). After observing the error, set final_answer = (\"ok\", \"recovered\"). Do these in separate iterations — first cause the error, then recover.",
           config: RLM.Config.load(max_iterations: 10)
         )
 

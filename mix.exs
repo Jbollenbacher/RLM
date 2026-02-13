@@ -25,7 +25,8 @@ defmodule Rlm.MixProject do
       {:req, "~> 0.5"},
       {:jason, "~> 1.4"},
       {:bandit, "~> 1.5"},
-      {:plug, "~> 1.15"}
+      {:plug, "~> 1.15"},
+      {:pythonx, "~> 0.4.7"}
     ]
   end
 end

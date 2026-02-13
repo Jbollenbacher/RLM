@@ -2,31 +2,31 @@ defmodule RLM.LLMTest do
   use ExUnit.Case
 
   describe "extract_code/1" do
-    test "extracts elixir code blocks" do
+    test "extracts python code blocks" do
       response = """
-      ```elixir
-      IO.puts(\"hi\")
+      ```python
+      print("hi")
       ```
       """
 
       assert {:ok, code} = RLM.LLM.extract_code(response)
-      assert code == "IO.puts(\"hi\")"
+      assert code == "print(\"hi\")"
     end
 
-    test "accepts capitalized Elixir and trailing whitespace" do
-      response = "```Elixir  \r\nx = 1\n```"
+    test "accepts capitalized Python and trailing whitespace" do
+      response = "```Python  \r\nx = 1\n```"
 
       assert {:ok, code} = RLM.LLM.extract_code(response)
       assert code == "x = 1"
     end
 
-    test "returns the last elixir code block when multiple are present" do
+    test "returns the last python code block when multiple are present" do
       response = """
-      ```elixir
+      ```python
       first = 1
       ```
 
-      ```elixir
+      ```python
       second = 2
       ```
       """

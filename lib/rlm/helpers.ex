@@ -1,12 +1,4 @@
 defmodule RLM.Helpers do
-  @spec chunks(String.t(), pos_integer()) :: Enumerable.t()
-  def chunks(string, size) when is_binary(string) and is_integer(size) and size > 0 do
-    Stream.unfold(string, fn
-      "" -> nil
-      s -> {String.slice(s, 0, size), String.slice(s, size..-1//1)}
-    end)
-  end
-
   @spec grep(String.t() | Regex.t(), String.t()) :: [{pos_integer(), String.t()}]
   def grep(pattern, string) when is_binary(string) do
     string
@@ -14,13 +6,6 @@ defmodule RLM.Helpers do
     |> Enum.with_index(1)
     |> Enum.filter(fn {line, _idx} -> matches?(pattern, line) end)
     |> Enum.map(fn {line, idx} -> {idx, line} end)
-  end
-
-  @spec preview(any(), pos_integer()) :: String.t()
-  def preview(term, n \\ 500) do
-    term
-    |> inspect(limit: :infinity, printable_limit: :infinity, pretty: true)
-    |> String.slice(0, n)
   end
 
   @spec list_bindings(keyword()) :: [{atom(), String.t(), non_neg_integer()}]

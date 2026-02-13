@@ -196,7 +196,7 @@ defmodule RLM.Loop do
 
     Your last three code blocks were identical. You appear to be stuck.
     Try a different approach. Consider:
-    - Using IO.inspect() to examine values
+    - Using print() to examine values
     - Breaking the problem into smaller steps
     - Using list_bindings() to check your current state
     """
@@ -205,7 +205,7 @@ defmodule RLM.Loop do
   defp no_code_nudge do
     """
     [REPL][AGENT]
-    [No code block found. Respond with exactly one ```elixir code block. Do not use IO.puts/IO.inspect to answer; set final_answer instead.]
+    [No code block found. Respond with exactly one ```python``` code block. Do not use print() to answer; set final_answer instead.]
     """
   end
 
@@ -231,7 +231,7 @@ defmodule RLM.Loop do
 
     Your previous conversation history has been compacted to free context space.
     The full history is available in the variable `compacted_history`.
-    You can use `preview(compacted_history)` or `grep(pattern, compacted_history)` to search it.
+    Use Python string operations (slicing, split, regex) and `grep(pattern, compacted_history)` to search it.
     All other bindings (context, variables you defined, etc.) are preserved unchanged.
 
     Preview of compacted history:

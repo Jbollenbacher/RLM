@@ -36,7 +36,7 @@ defmodule RLM.RecursionTest do
       result =
         RLM.run(
           context,
-          "Compute byte_size(context) and set final_answer = {:ok, Integer.to_string(byte_size(context))} in the same step.",
+          "Compute len(context.encode('utf-8')) and set final_answer = (\"ok\", str(len(context.encode('utf-8')))) in the same step.",
           config: RLM.Config.load(max_iterations: 5)
         )
 
