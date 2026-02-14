@@ -108,10 +108,18 @@ defmodule RLM.SubagentBrokerTest do
       match?({:ok, %{state: :ok}}, RLM.Subagent.Broker.poll(parent_id, child_id))
     end)
 
+    assert {:ok, polled} = RLM.Subagent.Broker.poll(parent_id, child_id)
+    assert Enum.any?(polled.pending_surveys, &(Map.get(&1, :id) == "subagent_usefulness"))
+
     assert [%{child_agent_id: ^child_id}] = RLM.Subagent.Broker.pending_assessments(parent_id)
 
-    assert {:ok, %{assessment: %{verdict: :satisfied, reason: "useful"}}} =
+    assert {:ok, assessed_state} =
              RLM.Subagent.Broker.assess(parent_id, child_id, :satisfied, "useful")
+
+    assert assessed_state.assessment.verdict == :satisfied
+    assert assessed_state.assessment.reason == "useful"
+    assert is_integer(assessed_state.assessment.ts)
+    assert Enum.any?(assessed_state.answered_surveys, &(Map.get(&1, :id) == "subagent_usefulness"))
 
     assert [] == RLM.Subagent.Broker.pending_assessments(parent_id)
   end

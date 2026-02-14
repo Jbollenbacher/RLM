@@ -28,7 +28,11 @@ RLM (Recursive Language Model) is an Elixir-hosted recursive agent loop:
 - `test/`
   - Unit + contract tests, with integration tests behind `RLM_RUN_INTEGRATION`.
 - `docs/`
-  - Architecture/reference docs (includes this architecture map plus supporting assessment notes).
+  - Architecture/reference docs (includes this architecture map plus supporting survey notes).
+- `bench/`
+  - Survey-driven benchmark manifests/profiles/templates and tracked prompt variants.
+- `bench_data/` (gitignored)
+  - Pulled corpora, generated task contexts/pools, run logs/exports, AB reports, and optimizer sessions.
 - `workspace/`
   - Example/project-local workspace content used by workspace helper flows.
 - `_build/`, `deps/`
@@ -59,8 +63,19 @@ RLM (Recursive Language Model) is an Elixir-hosted recursive agent loop:
     - workspace mode (`--workspace`, optional `--read-only`)
     - web mode (`--web`, `--web-port`)
     - export logs mode (`--export-logs`, `--export-logs-path`)
+    - export-log view control (`--export-logs-debug` for debug/full event export)
     - logger controls (`--verbose`, `--debug`)
   - Reads stdin context and query positional args.
+  - Export path behavior is defensive: if full-log export fails, CLI warns on stderr and preserves the task result path instead of crashing.
+- `lib/mix/tasks/rlm.bench.*.ex`
+  - Survey optimization pipeline:
+    - corpus pull-down (`rlm.bench.pull`)
+    - task generation (`rlm.bench.build`)
+    - quiet benchmark run + log capture (`rlm.bench.run`)
+    - run comparison (`rlm.bench.ab`)
+    - autonomous prompt-only optimization loop (`rlm.bench.optimize`)
+    - saved log inspection (`rlm.bench.logs`)
+  - Benchmark task subprocesses are executed with `MIX_NO_COMPILE=1` to reduce per-task compile churn.
 
 ### 3.4 Web UI/HTTP
 
@@ -114,6 +129,7 @@ Web chat flow:
     - `lib/rlm/loop/subagent_return.ex` (`RLM.Loop.SubagentReturn`)
     - `lib/rlm/loop/eval_feedback.ex` (`RLM.Loop.EvalFeedback`)
     - `lib/rlm/loop/finalization.ex` (`RLM.Loop.Finalization`)
+    - `lib/rlm/survey.ex` (`RLM.Survey`)
   - Per iteration:
     1. Resolve staged/finalization gates (`RLM.Loop.Finalization`).
     2. Optional compaction if estimated context size exceeds threshold.
@@ -123,26 +139,26 @@ Web chat flow:
     6. Extract last executable code block.
     7. Execute via `RLM.Eval`.
     8. Feed truncated stdout/stderr/result back as `[REPL][AGENT]` message (unless intentionally suppressed when final answer already captured and no output changed).
-    9. Continue or finalize based on `final_answer` and assessment rules.
-  - Handles repeated no-code behavior by one nudge + hard failure on repeat.
+    9. Continue or finalize based on `final_answer` and required-survey rules.
+  - Handles repeated no-code behavior by one nudge + hard failure on repeat, and check-in turns explicitly require executable Python.
 
 ### 4.3 Finalization and Check-In Gates
 
 - `lib/rlm/loop/finalization.ex`
   - Implements staged completion behavior for sampled quality flows:
-    - Dispatch assessment check-in (`assess_dispatch`) for sampled subagents.
-    - Subagent assessment check-in (`assess_lm_query`) for sampled child jobs.
+    - Dispatch-quality survey check-in (`answer_survey("dispatch_quality", ...)`) with `assess_dispatch` compatibility wrapper.
+    - Subagent-usefulness survey check-in (`answer_child_survey(..., "subagent_usefulness", ...)`) with `assess_lm_query` compatibility wrapper.
   - Important behavior:
     - Final answer can be staged.
     - Runtime allows one short check-in window.
-    - If still missing, runtime finalizes with "missing assessment" events.
+    - If still missing, runtime finalizes with `survey_missing` events.
 
 ### 4.4 LLM Transport
 
 - `lib/rlm/llm.ex`
   - Uses `Req` + `Finch` to call OpenAI-compatible `POST /chat/completions`.
   - Retries transient failures.
-  - Extracts code from fenced blocks; executes the last block.
+  - Extracts executable code from fenced Python blocks first, then `<python>...</python>` tags, then clearly code-like unfenced fallbacks when needed.
   - Emits observability span metadata (model, tail context preview, sizes).
 
 ## 5. Python Eval Boundary
@@ -154,7 +170,7 @@ Web chat flow:
   - Prepends `priv/python_prelude.py`.
   - Captures stdout/stderr with `StringIO`.
   - Persists updated globals back into bindings (`:python_globals`).
-  - Normalizes `final_answer` and dispatch assessment from Python globals.
+  - Normalizes `final_answer` and survey answers from Python globals.
   - Enforces eval timeout and returns bindings unchanged on failure.
 
 ### 5.2 Bridge and Async Subagents
@@ -164,14 +180,14 @@ Web chat flow:
     - Python writes request JSON.
     - Elixir bridge loop handles dispatch/poll/cancel/assess.
     - Bridge writes response JSON atomically.
-  - Chooses sampled assessments probabilistically via configured sample rate.
+  - Chooses sampled required-survey gates probabilistically via configured sample rate.
 
 ### 5.3 Term/Output Normalization
 
 - `lib/rlm/eval/codec.ex`
   - Decodes Python terms.
   - Normalizes accepted `final_answer` formats.
-  - Normalizes dispatch assessment payloads.
+  - Normalizes survey answer payloads.
   - Reassembles captured output chunk buffers.
 
 ### 5.4 Python Prelude Contract
@@ -180,6 +196,7 @@ Web chat flow:
   - Injected helpers include:
     - `grep`, `list_bindings`, `latest_principal_message`
     - async subagent helpers: `lm_query`, `poll_lm_query`, `await_lm_query`, `cancel_lm_query`, `assess_lm_query`
+    - generic survey helpers: `pending_surveys`, `answer_survey`, `answer_child_survey`
     - dispatch-quality helper: `assess_dispatch`
     - workspace helpers: `ls`, `read_file`, `edit_file`, `create_file`
     - final-answer helpers: `ok`, `fail`
@@ -212,11 +229,11 @@ Web chat flow:
   - Maintains parent-to-child index (`by_parent`) for efficient parent-scoped scans and drains.
   - Supports dispatch/poll/cancel/assess and batched update drains.
   - Enforces configurable per-parent job limits (`subagent_broker_max_jobs_per_parent`, default `2000`).
-  - Assessment semantics:
+  - Survey gating semantics:
     - required only if sampled + polled + terminal
   - Push update semantics:
     - one completion update
-    - one assessment reminder update after terminal poll
+    - one required-survey reminder update after terminal poll
   - Parent cleanup:
     - `cancel_all(parent_id)` on agent end.
 
@@ -224,10 +241,10 @@ Web chat flow:
 
 - `lib/rlm/prompt.ex`
   - System/user message builders.
-  - Nudge templates for no-code, invalid final answer, and assessment check-ins.
+  - Nudge templates for no-code, invalid final answer, and required-survey check-ins (including explicit executable-code requirements during check-ins).
   - Eval feedback formatter with recovery hints.
 - `priv/system_prompt.md`
-  - Behavioral contract for the recursive coding agent.
+  - Behavioral contract for the recursive coding agent, including the strict executable-Python-per-turn expectation.
 - `lib/rlm/truncate.ex`
   - Generic head/tail truncator used across REPL output, previews, and snapshots.
 - Compaction behavior (`RLM.Loop.Compaction.maybe_compact/5`, surfaced through `RLM.Loop.maybe_compact/5`)
@@ -254,7 +271,7 @@ Web chat flow:
 ### 8.3 Telemetry -> Tracker -> Store Pipeline
 
 - `lib/rlm/observability/telemetry.ex`
-  - Handles telemetry event families (`agent`, `iteration`, `llm`, `eval`, compaction, lm_query, assessments).
+  - Handles telemetry event families (`agent`, `iteration`, `llm`, `eval`, compaction, lm_query, surveys).
 - `lib/rlm/observability/tracker.ex`
   - Converts events to persistent model updates and snapshots.
 - `lib/rlm/observability/log_view.ex`
@@ -310,12 +327,18 @@ Web chat flow:
     - iteration/depth limits
     - truncation
     - eval/lm_query timeout
-    - subagent assessment sample rate
+    - subagent survey sample rate (config key remains `RLM_SUBAGENT_ASSESSMENT_SAMPLE_RATE`)
 
 ### 9.3 Environment-Specific Files
 
 - `config/dev.exs`, `config/test.exs`, `config/prod.exs`
   - Currently minimal (`import Config` only).
+
+### 9.4 Benchmark Variant Prompt Override
+
+- `RLM_SYSTEM_PROMPT_PATH`
+  - Optional runtime override for loading a full system prompt variant from an explicit file path.
+  - Used by benchmark/optimizer runs to compare prompt variants without editing `priv/system_prompt.md`.
 
 ## 10. Test Coverage Map
 
@@ -371,7 +394,7 @@ This gives a testable recursive agent runtime where:
 
 - model reasoning is code-mediated,
 - recursion is explicit and bounded,
-- completion is gated by enforceable final-answer/assessment contracts,
+- completion is gated by enforceable final-answer/required-survey contracts,
 - and runtime behavior is inspectable through built-in observability and export.
 
 ## 13. Fact-Check Watchlist (For Future Updates)
@@ -385,7 +408,7 @@ These are the highest-value re-checks when code changes:
 - Prelude helper surface in `priv/python_prelude.py`
   - confirm helper names, read/write workspace behavior, and status-helper contracts
 - Subagent lifecycle semantics in `lib/rlm/subagent/broker.ex`
-  - confirm when assessments are required and how update drains behave
+  - confirm when required surveys are enforced and how update drains behave
 - Observability event persistence rules in `lib/rlm/observability/telemetry.ex`, `lib/rlm/observability/log_view.ex`, `lib/rlm/observability/store.ex`
   - confirm which events are recorded, filtered, and exported
 - Integration-test gate in `test/test_helper.exs`

@@ -15,7 +15,9 @@ defmodule RLM.Subagent.Broker do
               payload: term(),
               assessment_required: boolean(),
               assessment_recorded: boolean(),
-              assessment: map() | nil
+              assessment: map() | nil,
+              pending_surveys: [map()],
+              answered_surveys: [map()]
             }
 
   @type assessment_verdict :: :satisfied | :dissatisfied
@@ -27,6 +29,8 @@ defmodule RLM.Subagent.Broker do
           assessment_required: boolean(),
           assessment_recorded: boolean(),
           assessment: map() | nil,
+          pending_surveys: [map()],
+          answered_surveys: [map()],
           completion_update: boolean(),
           assessment_update: boolean()
         }
@@ -47,7 +51,9 @@ defmodule RLM.Subagent.Broker do
           assessment: map() | nil,
           assessment_missing_emitted: boolean(),
           completion_notified: boolean(),
-          assessment_prompt_pending: boolean()
+          assessment_prompt_pending: boolean(),
+          surveys: map(),
+          survey_requested_notified: boolean()
         }
 
   @name __MODULE__
@@ -91,8 +97,16 @@ defmodule RLM.Subagent.Broker do
   def assess(parent_id, child_id, verdict, reason \\ "")
       when is_binary(parent_id) and is_binary(child_id) and
              verdict in [:satisfied, :dissatisfied] and is_binary(reason) do
+    answer_survey(parent_id, child_id, RLM.Survey.subagent_usefulness_id(), verdict, reason)
+  end
+
+  @spec answer_survey(parent_id(), child_id(), String.t(), term(), String.t()) ::
+          {:ok, poll_state()} | {:error, String.t()}
+  def answer_survey(parent_id, child_id, survey_id, response, reason \\ "")
+      when is_binary(parent_id) and is_binary(child_id) and is_binary(survey_id) and
+             is_binary(reason) do
     call_if_running(fn ->
-      GenServer.call(@name, {:assess, parent_id, child_id, verdict, reason})
+      GenServer.call(@name, {:answer_survey, parent_id, child_id, survey_id, response, reason})
     end)
   end
 
@@ -179,7 +193,9 @@ defmodule RLM.Subagent.Broker do
           assessment: nil,
           assessment_missing_emitted: false,
           completion_notified: false,
-          assessment_prompt_pending: false
+          assessment_prompt_pending: false,
+          surveys: initial_surveys(assessment_sampled),
+          survey_requested_notified: false
         }
 
         state = put_job(state, key, job)
@@ -221,7 +237,11 @@ defmodule RLM.Subagent.Broker do
     end
   end
 
-  def handle_call({:assess, parent_id, child_id, verdict, reason}, _from, state) do
+  def handle_call(
+        {:answer_survey, parent_id, child_id, survey_id, response, reason},
+        _from,
+        state
+      ) do
     key = {parent_id, child_id}
 
     case Map.get(state.jobs, key) do
@@ -231,57 +251,50 @@ defmodule RLM.Subagent.Broker do
       %{status: :running} ->
         {:reply,
          {:error,
-          "Cannot assess lm_query id `#{child_id}` while subagent is still running. Wait for termination via poll_lm_query/await_lm_query/cancel_lm_query first."},
+          "Cannot answer survey for lm_query id `#{child_id}` while subagent is still running. Wait for termination via poll_lm_query/await_lm_query/cancel_lm_query first."},
          state}
 
       job ->
-        now = System.system_time(:millisecond)
+        with {surveys, _survey} <- ensure_job_survey(job, survey_id),
+             {:ok, surveys, _answered_survey} <-
+               RLM.Survey.answer(surveys, survey_id, response, reason) do
+          now = System.system_time(:millisecond)
+          compat_assessment = compat_assessment_from_surveys(surveys)
 
-        assessment = %{
-          verdict: verdict,
-          reason: reason,
-          ts: now
-        }
+          job = %{
+            job
+            | surveys: surveys,
+              assessment: compat_assessment,
+              assessment_prompt_pending: required_survey_pending?(surveys),
+              updated_at: now
+          }
 
-        job = %{job | assessment: assessment, assessment_prompt_pending: false, updated_at: now}
-        state = put_job(state, key, job)
-        {:reply, {:ok, to_poll_state(job)}, state}
+          state = put_job(state, key, job)
+          {:reply, {:ok, to_poll_state(job)}, state}
+        else
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
     end
   end
 
   def handle_call({:pending_assessments, parent_id}, _from, state) do
     pending =
-      state.by_parent
-      |> Map.get(parent_id, MapSet.new())
-      |> MapSet.to_list()
-      |> Enum.map(fn child_id ->
-        key = {parent_id, child_id}
-        Map.get(state.jobs, key)
-      end)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.filter(&(assessment_required?(&1) and is_nil(&1.assessment)))
-      |> Enum.map(fn job ->
-        %{
-          child_agent_id: job.child_id,
-          status: job.status
-        }
-      end)
+      state
+      |> parent_job_entries(parent_id)
+      |> Enum.map(&elem(&1, 1))
+      |> Enum.filter(&required_subagent_survey_pending?/1)
+      |> Enum.map(&pending_required_survey_summary/1)
 
     {:reply, pending, state}
   end
 
   def handle_call({:drain_pending_assessments, parent_id}, _from, state) do
     pending =
-      state.by_parent
-      |> Map.get(parent_id, MapSet.new())
-      |> MapSet.to_list()
-      |> Enum.map(fn child_id ->
-        key = {parent_id, child_id}
-        {key, Map.get(state.jobs, key)}
-      end)
-      |> Enum.reject(fn {_key, job} -> is_nil(job) end)
+      state
+      |> parent_job_entries(parent_id)
       |> Enum.filter(fn {_key, job} ->
-        assessment_required?(job) and is_nil(job.assessment) and
+        required_subagent_survey_pending?(job) and
           not job.assessment_missing_emitted
       end)
 
@@ -292,26 +305,17 @@ defmodule RLM.Subagent.Broker do
         put_job(acc, key, updated)
       end)
 
-    response =
-      Enum.map(pending, fn {{_parent_id, child_id}, job} ->
-        %{child_agent_id: child_id, status: job.status}
-      end)
+    response = Enum.map(pending, fn {_key, job} -> pending_required_survey_summary(job) end)
 
     {:reply, response, state}
   end
 
   def handle_call({:drain_updates, parent_id}, _from, state) do
-    child_ids =
-      state.by_parent
-      |> Map.get(parent_id, MapSet.new())
-      |> MapSet.to_list()
-
     {state, updates} =
-      Enum.reduce(child_ids, {state, []}, fn child_id, {acc_state, acc_updates} ->
-        key = {parent_id, child_id}
-        job = Map.get(acc_state.jobs, key)
-
-        if is_nil(job) or job.status == :running do
+      state
+      |> parent_job_entries(parent_id)
+      |> Enum.reduce({state, []}, fn {key, job}, {acc_state, acc_updates} ->
+        if job.status == :running do
           {acc_state, acc_updates}
         else
           completion_update = not Map.get(job, :completion_notified, false)
@@ -345,17 +349,16 @@ defmodule RLM.Subagent.Broker do
       updates
       |> Enum.reverse()
       |> Enum.sort_by(&{Map.get(&1, :child_agent_id), Map.get(&1, :state)})
+
     {:reply, updates, state}
   end
 
   @impl true
   def handle_cast({:cancel_all, parent_id}, state) do
-    child_ids = state.by_parent |> Map.get(parent_id, MapSet.new()) |> MapSet.to_list()
-
     state =
-      Enum.reduce(child_ids, state, fn child_id, acc ->
-        key = {parent_id, child_id}
-
+      state
+      |> parent_job_entries(parent_id)
+      |> Enum.reduce(state, fn {key, _job}, acc ->
         case Map.get(acc.jobs, key) do
           %{status: :running} = job ->
             cancel_job(acc, key, job, "Parent agent ended")
@@ -435,6 +438,20 @@ defmodule RLM.Subagent.Broker do
 
   defp finalize_job(state, key, job, status, payload)
        when status in [:ok, :error, :cancelled] do
+    candidate = %{job | status: status, payload: payload}
+    surveys = refresh_job_surveys(candidate)
+    assessment_prompt_pending = required_survey_pending?(surveys)
+    compat_assessment = compat_assessment_from_surveys(surveys)
+
+    survey_requested_notified =
+      maybe_emit_survey_requested(
+        candidate.parent_id,
+        candidate.child_id,
+        surveys,
+        candidate.polled,
+        candidate.survey_requested_notified
+      )
+
     now = System.system_time(:millisecond)
     timeout_ref = Map.get(job, :timeout_ref)
     if is_reference(timeout_ref), do: Process.cancel_timer(timeout_ref)
@@ -449,8 +466,10 @@ defmodule RLM.Subagent.Broker do
         monitor_ref: nil,
         timeout_ref: nil,
         completion_notified: false,
-        assessment_prompt_pending:
-          assessment_required?(%{job | status: status, payload: payload}),
+        assessment_prompt_pending: assessment_prompt_pending,
+        assessment: compat_assessment,
+        surveys: surveys,
+        survey_requested_notified: survey_requested_notified,
         updated_at: now
     }
 
@@ -494,13 +513,30 @@ defmodule RLM.Subagent.Broker do
   defp mark_polled(state, _key, %{polled: true} = job), do: {state, job}
 
   defp mark_polled(state, key, job) do
+    candidate = %{job | polled: true}
+    surveys = refresh_job_surveys(candidate)
+    assessment_prompt_pending = required_survey_pending?(surveys)
+    compat_assessment = compat_assessment_from_surveys(surveys)
+
+    survey_requested_notified =
+      maybe_emit_survey_requested(
+        candidate.parent_id,
+        candidate.child_id,
+        surveys,
+        true,
+        candidate.survey_requested_notified
+      )
+
     now = System.system_time(:millisecond)
 
     updated =
       %{
-        job
+        candidate
         | polled: true,
-          assessment_prompt_pending: assessment_required?(%{job | polled: true}),
+          assessment_prompt_pending: assessment_prompt_pending,
+          assessment: compat_assessment,
+          surveys: surveys,
+          survey_requested_notified: survey_requested_notified,
           updated_at: now
       }
 
@@ -512,13 +548,10 @@ defmodule RLM.Subagent.Broker do
   end
 
   defp to_poll_state(job) do
-    %{
-      state: job.status,
-      payload: job.payload,
-      assessment_required: assessment_required?(job),
-      assessment_recorded: not is_nil(job.assessment),
-      assessment: normalize_assessment(job.assessment)
-    }
+    survey_snapshot = survey_snapshot(job)
+    payload = terminal_job_payload(job, survey_snapshot)
+
+    Map.put(payload, :state, job.status)
   end
 
   defp normalize_assessment(nil), do: nil
@@ -529,10 +562,6 @@ defmodule RLM.Subagent.Broker do
       reason: Map.get(assessment, :reason),
       ts: Map.get(assessment, :ts)
     }
-  end
-
-  defp assessment_required?(job) do
-    job.assessment_sampled and job.polled and job.status in [:ok, :error, :cancelled]
   end
 
   defp prune_parent_jobs(state, parent_id) do
@@ -586,20 +615,165 @@ defmodule RLM.Subagent.Broker do
   defp evictable_job?(job) do
     job.status in [:ok, :error, :cancelled] and
       job.completion_notified and
-      (not assessment_required?(job) or not is_nil(job.assessment))
+      not required_survey_pending?(refresh_job_surveys(job))
   end
 
   defp build_push_update(job, opts) do
-    %{
+    survey_snapshot = survey_snapshot(job)
+    payload = terminal_job_payload(job, survey_snapshot)
+
+    Map.merge(payload, %{
       child_agent_id: job.child_id,
       state: job.status,
-      payload: job.payload,
-      assessment_required: assessment_required?(job),
-      assessment_recorded: not is_nil(job.assessment),
-      assessment: normalize_assessment(job.assessment),
       completion_update: Keyword.get(opts, :completion_update, false),
       assessment_update: Keyword.get(opts, :assessment_update, false)
+    })
+  end
+
+  defp initial_surveys(_assessment_sampled) do
+    RLM.Survey.init_state()
+    |> RLM.Survey.ensure_subagent_usefulness(false)
+  end
+
+  defp refresh_job_surveys(job) do
+    required = job.assessment_sampled and job.polled and job.status in [:ok, :error, :cancelled]
+    job.surveys |> ensure_job_surveys_present() |> RLM.Survey.ensure_subagent_usefulness(required)
+  end
+
+  defp ensure_job_surveys_present(nil), do: initial_surveys(false)
+  defp ensure_job_surveys_present(surveys) when is_map(surveys), do: surveys
+
+  defp required_survey_pending?(surveys) do
+    surveys
+    |> RLM.Survey.pending_required()
+    |> Enum.any?()
+  end
+
+  defp required_subagent_survey_pending?(job) do
+    surveys = refresh_job_surveys(job)
+    required_subagent_survey_pending_from_surveys?(surveys)
+  end
+
+  defp required_subagent_survey_pending_from_surveys?(surveys) when is_map(surveys) do
+    Enum.any?(RLM.Survey.pending_required(surveys), fn survey ->
+      Map.get(survey, :id) == RLM.Survey.subagent_usefulness_id()
+    end)
+  end
+
+  defp survey_snapshot(job) do
+    surveys = refresh_job_surveys(job)
+
+    %{
+      pending_surveys: serialize_surveys(RLM.Survey.pending_all(surveys)),
+      answered_surveys: serialize_surveys(RLM.Survey.answered_all(surveys)),
+      assessment_required: required_subagent_survey_pending_from_surveys?(surveys)
     }
+  end
+
+  defp terminal_job_payload(job, survey_snapshot) do
+    %{
+      payload: job.payload,
+      assessment_required: survey_snapshot.assessment_required,
+      assessment_recorded: not is_nil(job.assessment),
+      assessment: normalize_assessment(job.assessment),
+      pending_surveys: survey_snapshot.pending_surveys,
+      answered_surveys: survey_snapshot.answered_surveys
+    }
+  end
+
+  defp serialize_surveys(surveys) when is_list(surveys) do
+    Enum.map(surveys, fn survey ->
+      %{
+        id: Map.get(survey, :id),
+        scope: Map.get(survey, :scope),
+        question: Map.get(survey, :question),
+        required: Map.get(survey, :required, false),
+        status: Map.get(survey, :status),
+        response: Map.get(survey, :response),
+        reason: get_in(survey, [:metadata, :reason])
+      }
+    end)
+  end
+
+  defp ensure_job_survey(job, survey_id) do
+    surveys =
+      job
+      |> Map.get(:surveys, %{})
+      |> ensure_job_surveys_present()
+
+    RLM.Survey.ensure_survey(surveys, survey_definition(job, survey_id))
+  end
+
+  # Compatibility projection for existing poll/update payload fields.
+  defp compat_assessment_from_surveys(surveys) do
+    case Map.get(surveys, RLM.Survey.subagent_usefulness_id()) do
+      %{response: verdict, metadata: metadata} when verdict in [:satisfied, :dissatisfied] ->
+        %{
+          verdict: verdict,
+          reason: to_string(Map.get(metadata, :reason, "")),
+          ts: System.system_time(:millisecond)
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  defp maybe_emit_survey_requested(parent_id, child_id, surveys, true, false) do
+    case Map.get(surveys, RLM.Survey.subagent_usefulness_id()) do
+      %{required: true} = survey ->
+        RLM.Observability.survey_requested(parent_id, survey.id, %{
+          child_agent_id: child_id,
+          required: true,
+          question: survey.question,
+          scope: survey.scope
+        })
+
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp maybe_emit_survey_requested(_parent_id, _child_id, _surveys, _polled, notified),
+    do: notified
+
+  defp parent_job_entries(state, parent_id) do
+    state.by_parent
+    |> Map.get(parent_id, MapSet.new())
+    |> Enum.map(fn child_id ->
+      key = {parent_id, child_id}
+      {key, Map.get(state.jobs, key)}
+    end)
+    |> Enum.reject(fn {_key, job} -> is_nil(job) end)
+  end
+
+  defp pending_required_survey_summary(job) do
+    %{child_agent_id: job.child_id, status: job.status}
+  end
+
+  defp survey_definition(job, survey_id) do
+    if survey_id == RLM.Survey.subagent_usefulness_id() do
+      required = job.assessment_sampled and job.polled and job.status in [:ok, :error, :cancelled]
+
+      %{
+        id: RLM.Survey.subagent_usefulness_id(),
+        scope: :child,
+        question: "Rate subagent usefulness",
+        required: required,
+        response_schema: :verdict
+      }
+    else
+      %{
+        id: survey_id,
+        scope: :child,
+        question: "Survey response",
+        required: false,
+        response_schema: nil,
+        metadata: %{}
+      }
+    end
   end
 
   defp call_if_running(fun, fallback \\ {:error, "Subagent broker is not running"}) do

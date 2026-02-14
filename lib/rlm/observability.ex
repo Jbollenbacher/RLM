@@ -107,48 +107,160 @@ defmodule RLM.Observability do
     emit([:rlm, :lm_query], %{}, payload)
   end
 
+  @spec subagent_usefulness_answer(String.t(), String.t(), atom(), String.t()) :: :ok
+  def subagent_usefulness_answer(parent_agent_id, child_agent_id, verdict, reason) do
+    survey_answered(
+      parent_agent_id,
+      RLM.Survey.subagent_usefulness_id(),
+      verdict,
+      %{
+        child_agent_id: child_agent_id,
+        reason: reason,
+        scope: :child
+      }
+    )
+  end
+
+  @spec subagent_usefulness_missing(String.t(), String.t(), atom()) :: :ok
+  def subagent_usefulness_missing(parent_agent_id, child_agent_id, status) do
+    survey_missing(
+      parent_agent_id,
+      RLM.Survey.subagent_usefulness_id(),
+      %{
+        child_agent_id: child_agent_id,
+        status: status,
+        scope: :child
+      }
+    )
+  end
+
+  @spec dispatch_quality_answer(String.t(), String.t(), atom(), String.t()) :: :ok
+  def dispatch_quality_answer(parent_agent_id, child_agent_id, verdict, reason) do
+    with_child_agent(child_agent_id, fn ->
+      survey_answered(
+        child_agent_id,
+        RLM.Survey.dispatch_quality_id(),
+        verdict,
+        %{
+          child_agent_id: child_agent_id,
+          parent_agent_id: parent_agent_id,
+          reason: reason,
+          scope: :agent
+        }
+      )
+    end)
+  end
+
+  @spec dispatch_quality_missing(String.t(), String.t(), atom()) :: :ok
+  def dispatch_quality_missing(parent_agent_id, child_agent_id, status) do
+    with_child_agent(child_agent_id, fn ->
+      survey_missing(
+        child_agent_id,
+        RLM.Survey.dispatch_quality_id(),
+        %{
+          child_agent_id: child_agent_id,
+          parent_agent_id: parent_agent_id,
+          status: status,
+          scope: :agent
+        }
+      )
+    end)
+  end
+
   @spec subagent_assessment(String.t(), String.t(), atom(), String.t()) :: :ok
   def subagent_assessment(parent_agent_id, child_agent_id, verdict, reason) do
-    emit([:rlm, :subagent_assessment], %{}, %{
-      agent_id: parent_agent_id,
-      child_agent_id: child_agent_id,
-      verdict: verdict,
-      reason: reason
-    })
+    subagent_usefulness_answer(parent_agent_id, child_agent_id, verdict, reason)
   end
 
   @spec subagent_assessment_missing(String.t(), String.t(), atom()) :: :ok
   def subagent_assessment_missing(parent_agent_id, child_agent_id, status) do
-    emit([:rlm, :subagent_assessment, :missing], %{}, %{
-      agent_id: parent_agent_id,
-      child_agent_id: child_agent_id,
-      status: status
-    })
+    subagent_usefulness_missing(parent_agent_id, child_agent_id, status)
   end
 
   @spec dispatch_assessment(String.t(), String.t(), atom(), String.t()) :: :ok
   def dispatch_assessment(parent_agent_id, child_agent_id, verdict, reason) do
-    if is_binary(child_agent_id) and child_agent_id != "" do
-      emit([:rlm, :dispatch_assessment], %{}, %{
-        agent_id: child_agent_id,
-        child_agent_id: child_agent_id,
-        parent_agent_id: parent_agent_id,
-        verdict: verdict,
-        reason: reason
-      })
-    end
+    dispatch_quality_answer(parent_agent_id, child_agent_id, verdict, reason)
   end
 
   @spec dispatch_assessment_missing(String.t(), String.t(), atom()) :: :ok
   def dispatch_assessment_missing(parent_agent_id, child_agent_id, status) do
-    if is_binary(child_agent_id) and child_agent_id != "" do
-      emit([:rlm, :dispatch_assessment, :missing], %{}, %{
-        agent_id: child_agent_id,
-        child_agent_id: child_agent_id,
-        parent_agent_id: parent_agent_id,
-        status: status
-      })
+    dispatch_quality_missing(parent_agent_id, child_agent_id, status)
+  end
+
+  @spec survey_requested(String.t(), String.t(), map()) :: :ok
+  def survey_requested(agent_id, survey_id, payload \\ %{})
+      when is_binary(agent_id) and is_binary(survey_id) and is_map(payload) do
+    emit(
+      [:rlm, :survey, :requested],
+      %{},
+      Map.merge(payload, %{agent_id: agent_id, survey_id: survey_id})
+    )
+  end
+
+  @spec survey_answered(String.t(), String.t(), term(), map()) :: :ok
+  def survey_answered(agent_id, survey_id, response, payload \\ %{})
+      when is_binary(agent_id) and is_binary(survey_id) and is_map(payload) do
+    emit(
+      [:rlm, :survey, :answered],
+      %{},
+      Map.merge(payload, %{agent_id: agent_id, survey_id: survey_id, response: response})
+    )
+  end
+
+  @spec survey_missing(String.t(), String.t(), map()) :: :ok
+  def survey_missing(agent_id, survey_id, payload \\ %{})
+      when is_binary(agent_id) and is_binary(survey_id) and is_map(payload) do
+    emit(
+      [:rlm, :survey, :missing],
+      %{},
+      Map.merge(payload, %{agent_id: agent_id, survey_id: survey_id})
+    )
+  end
+
+  @spec local_survey_answers(String.t() | nil, String.t() | nil, boolean(), map()) :: :ok
+  def local_survey_answers(
+        agent_id,
+        parent_agent_id,
+        dispatch_assessment_required,
+        survey_answers
+      ) do
+    dispatch_survey_id = RLM.Survey.dispatch_quality_id()
+    parent_present? = is_binary(parent_agent_id) and parent_agent_id != ""
+
+    # Required dispatch_quality answers are emitted at finalization so scoring
+    # sees one canonical event per sampled child.
+    if is_binary(agent_id) and is_map(survey_answers) do
+      Enum.each(survey_answers, fn {survey_id, value} ->
+        survey_id = to_string(survey_id)
+
+        defer_dispatch_emit? =
+          survey_id == dispatch_survey_id and dispatch_assessment_required and parent_present?
+
+        if not defer_dispatch_emit? do
+          response =
+            normalize_survey_answer_response(
+              survey_id,
+              Map.get(value, :response, Map.get(value, "response"))
+            )
+
+          payload =
+            %{
+              scope: :agent,
+              reason: value |> Map.get(:reason, Map.get(value, "reason", "")) |> to_string()
+            }
+            |> maybe_attach_dispatch_metadata(
+              survey_id,
+              dispatch_survey_id,
+              parent_agent_id,
+              agent_id
+            )
+
+          survey_answered(agent_id, survey_id, response, payload)
+        end
+      end)
     end
+
+    :ok
   end
 
   @spec snapshot_context(String.t(), non_neg_integer(), [map()], RLM.Config.t(), keyword()) :: :ok
@@ -158,6 +270,38 @@ defmodule RLM.Observability do
     end
 
     :ok
+  end
+
+  defp with_child_agent(child_agent_id, fun)
+       when is_binary(child_agent_id) and child_agent_id != "" do
+    fun.()
+  end
+
+  defp with_child_agent(_child_agent_id, _fun), do: :ok
+
+  defp maybe_attach_dispatch_metadata(
+         payload,
+         survey_id,
+         dispatch_survey_id,
+         parent_agent_id,
+         child_agent_id
+       ) do
+    if survey_id == dispatch_survey_id and is_binary(parent_agent_id) and parent_agent_id != "" do
+      Map.merge(payload, %{parent_agent_id: parent_agent_id, child_agent_id: child_agent_id})
+    else
+      payload
+    end
+  end
+
+  defp normalize_survey_answer_response(survey_id, response) do
+    if survey_id in [RLM.Survey.dispatch_quality_id(), RLM.Survey.subagent_usefulness_id()] do
+      case RLM.Survey.parse_verdict(response) do
+        {:ok, verdict} -> verdict
+        :error -> response
+      end
+    else
+      response
+    end
   end
 
   defp start_supervisor(opts) do

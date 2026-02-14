@@ -1,4 +1,7 @@
 import json
+import builtins
+import io
+import os
 import re
 import sys
 import time
@@ -97,6 +100,8 @@ def latest_principal_message(context):
     return _rlm_unwrap(latest_principal_message_status(context), "latest_principal_message")
 
 def _rlm_workspace_root():
+    if _rlm_workspace_root_path is not None:
+        return _rlm_workspace_root_path
     root = _rlm_to_text(globals().get("workspace_root"))
     if not root:
         raise ValueError("workspace_root not set")
@@ -109,6 +114,215 @@ def _rlm_resolve_workspace_path(path):
     if target != root and root not in target.parents:
         raise ValueError("Path is outside workspace root")
     return root, target
+
+def _rlm_path_in_root(path, root):
+    return path == root or root in path.parents
+
+def _rlm_is_bridge_path(path):
+    return _rlm_bridge_root_path is not None and _rlm_path_in_root(path, _rlm_bridge_root_path)
+
+def _rlm_is_write_mode(mode):
+    text = "r" if mode is None else str(mode)
+    return any(flag in text for flag in ("w", "a", "x", "+"))
+
+def _rlm_runtime_roots():
+    roots = []
+
+    for prefix in (getattr(sys, "base_prefix", None), getattr(sys, "exec_prefix", None)):
+        if prefix:
+            try:
+                roots.append(Path(prefix).resolve())
+            except Exception:
+                pass
+
+    for entry in sys.path:
+        if not entry:
+            continue
+        try:
+            candidate = Path(entry)
+            if not candidate.is_absolute():
+                continue
+            resolved = candidate.resolve()
+        except Exception:
+            continue
+
+        if any(_rlm_path_in_root(resolved, root) for root in roots):
+            roots.append(resolved)
+
+    deduped = []
+    seen = set()
+    for root in roots:
+        key = str(root)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(root)
+    return deduped
+
+_rlm_workspace_root_path = None
+_rlm_virtual_cwd = None
+_rlm_allowed_runtime_roots = []
+_rlm_bridge_root_path = None
+
+if not hasattr(builtins, "_rlm_original_open"):
+    builtins._rlm_original_open = builtins.open
+
+if not hasattr(io, "_rlm_original_open"):
+    io._rlm_original_open = io.open
+
+if not hasattr(os, "_rlm_original_walk"):
+    os._rlm_original_walk = os.walk
+if not hasattr(os, "_rlm_original_listdir"):
+    os._rlm_original_listdir = os.listdir
+if not hasattr(os, "_rlm_original_scandir"):
+    os._rlm_original_scandir = os.scandir
+if not hasattr(os, "_rlm_original_getcwd"):
+    os._rlm_original_getcwd = os.getcwd
+if not hasattr(os, "_rlm_original_chdir"):
+    os._rlm_original_chdir = os.chdir
+
+if not hasattr(Path, "_rlm_original_open"):
+    Path._rlm_original_open = Path.open
+if not hasattr(Path, "_rlm_original_cwd"):
+    Path._rlm_original_cwd = Path.cwd
+
+_rlm_original_open = builtins._rlm_original_open
+_rlm_original_io_open = io._rlm_original_open
+_rlm_original_os_walk = os._rlm_original_walk
+_rlm_original_os_listdir = os._rlm_original_listdir
+_rlm_original_os_scandir = os._rlm_original_scandir
+_rlm_original_os_getcwd = os._rlm_original_getcwd
+_rlm_original_os_chdir = os._rlm_original_chdir
+_rlm_original_path_open = Path._rlm_original_open
+_rlm_original_path_cwd = Path._rlm_original_cwd
+
+def _rlm_resolve_guarded_path(path, allow_runtime=False, allow_bridge=False):
+    if _rlm_workspace_root_path is None:
+        return Path(path).resolve()
+
+    text = _rlm_to_text(path)
+    candidate = Path(text)
+
+    if not candidate.is_absolute():
+        base = _rlm_virtual_cwd or _rlm_workspace_root_path
+        candidate = base / candidate
+
+    resolved = candidate.resolve()
+    if _rlm_path_in_root(resolved, _rlm_workspace_root_path):
+        return resolved
+
+    if allow_bridge and _rlm_bridge_root_path is not None and _rlm_path_in_root(resolved, _rlm_bridge_root_path):
+        return resolved
+
+    if allow_runtime and any(_rlm_path_in_root(resolved, root) for root in _rlm_allowed_runtime_roots):
+        return resolved
+
+    raise PermissionError("Path is outside workspace root")
+
+def _rlm_guarded_open(file, mode="r", *args, **kwargs):
+    if _rlm_workspace_root_path is None or isinstance(file, int):
+        return _rlm_original_open(file, mode, *args, **kwargs)
+
+    write_mode = _rlm_is_write_mode(mode)
+    target = _rlm_resolve_guarded_path(
+        file,
+        allow_runtime=(not write_mode),
+        allow_bridge=True
+    )
+
+    if write_mode and globals().get("workspace_read_only", False) and not _rlm_is_bridge_path(target):
+        raise PermissionError("Workspace is read-only")
+
+    return _rlm_original_open(str(target), mode, *args, **kwargs)
+
+def _rlm_guarded_os_walk(top, *args, **kwargs):
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_os_walk(top, *args, **kwargs)
+    target = _rlm_resolve_guarded_path(top, allow_runtime=False, allow_bridge=False)
+    return _rlm_original_os_walk(str(target), *args, **kwargs)
+
+def _rlm_guarded_os_listdir(path="."):
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_os_listdir(path)
+    target = _rlm_resolve_guarded_path(path, allow_runtime=False, allow_bridge=False)
+    return _rlm_original_os_listdir(str(target))
+
+def _rlm_guarded_os_scandir(path="."):
+    if _rlm_workspace_root_path is None or isinstance(path, int):
+        return _rlm_original_os_scandir(path)
+    target = _rlm_resolve_guarded_path(path, allow_runtime=False, allow_bridge=False)
+    return _rlm_original_os_scandir(str(target))
+
+def _rlm_guarded_os_getcwd():
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_os_getcwd()
+    return str(_rlm_virtual_cwd or _rlm_workspace_root_path)
+
+def _rlm_guarded_os_chdir(path):
+    global _rlm_virtual_cwd
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_os_chdir(path)
+    target = _rlm_resolve_guarded_path(path, allow_runtime=False, allow_bridge=False)
+    _rlm_virtual_cwd = target
+    return None
+
+def _rlm_guarded_path_open(self, *args, **kwargs):
+    mode = kwargs.get("mode")
+    if mode is None and len(args) > 0:
+        mode = args[0]
+    if mode is None:
+        mode = "r"
+
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_path_open(self, *args, **kwargs)
+
+    write_mode = _rlm_is_write_mode(mode)
+    target = _rlm_resolve_guarded_path(
+        self,
+        allow_runtime=(not write_mode),
+        allow_bridge=True
+    )
+
+    if write_mode and globals().get("workspace_read_only", False) and not _rlm_is_bridge_path(target):
+        raise PermissionError("Workspace is read-only")
+
+    return _rlm_original_open(str(target), *args, **kwargs)
+
+def _rlm_guarded_path_cwd():
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_path_cwd()
+    return Path(str(_rlm_virtual_cwd or _rlm_workspace_root_path))
+
+def _rlm_install_workspace_guard():
+    global _rlm_workspace_root_path, _rlm_virtual_cwd, _rlm_allowed_runtime_roots, _rlm_bridge_root_path
+
+    root = _rlm_to_text(globals().get("workspace_root"))
+    if not root:
+        return
+
+    root_path = Path(root)
+    if not root_path.is_absolute():
+        root_path = Path(_rlm_original_os_getcwd()) / root_path
+
+    _rlm_workspace_root_path = root_path.resolve()
+    _rlm_virtual_cwd = _rlm_workspace_root_path
+    _rlm_allowed_runtime_roots = _rlm_runtime_roots()
+    bridge_root = _rlm_to_text(globals().get("_rlm_bridge_dir"))
+    _rlm_bridge_root_path = Path(bridge_root).resolve() if bridge_root else None
+    globals()["workspace_root"] = str(_rlm_workspace_root_path)
+
+    builtins.open = _rlm_guarded_open
+    io.open = _rlm_guarded_open
+
+    os.walk = _rlm_guarded_os_walk
+    os.listdir = _rlm_guarded_os_listdir
+    os.scandir = _rlm_guarded_os_scandir
+    os.getcwd = _rlm_guarded_os_getcwd
+    os.chdir = _rlm_guarded_os_chdir
+
+    Path.open = _rlm_guarded_path_open
+    Path.cwd = staticmethod(_rlm_guarded_path_cwd)
+
+_rlm_install_workspace_guard()
 
 def ls_status(path="."):
     try:
@@ -237,7 +451,7 @@ def fail(reason):
 
 def list_bindings():
     excluded = {
-        "__builtins__", "json", "re", "sys", "time", "Path",
+        "__builtins__", "builtins", "io", "json", "os", "re", "sys", "time", "Path",
         "grep",
         "latest_principal_message", "latest_principal_message_status",
         "ls", "ls_status",
@@ -247,6 +461,7 @@ def list_bindings():
         "ok", "fail",
         "list_bindings",
         "lm_query", "poll_lm_query", "await_lm_query", "cancel_lm_query", "assess_lm_query",
+        "pending_surveys", "answer_survey", "answer_child_survey",
         "assess_dispatch",
         "print"
     }
@@ -265,10 +480,115 @@ def list_bindings():
     out.sort(key=lambda item: item[0])
     return out
 
+def _rlm_normalize_survey_state(raw):
+    if not isinstance(raw, dict):
+        return {}
+
+    state = {}
+    for key, value in raw.items():
+        survey_id = str(_rlm_to_text(key))
+        if isinstance(value, dict):
+            normalized = {}
+            for inner_key, inner_value in value.items():
+                normalized[str(_rlm_to_text(inner_key))] = _rlm_to_text(inner_value)
+            state[survey_id] = normalized
+        else:
+            state[survey_id] = {"id": survey_id}
+    return state
+
+def _rlm_survey_answers_store():
+    answers = globals().get("_rlm_survey_answers")
+    if isinstance(answers, dict):
+        return answers
+    answers = {}
+    globals()["_rlm_survey_answers"] = answers
+    return answers
+
+def _rlm_validate_survey_response(survey_id, response):
+    state = _rlm_normalize_survey_state(globals().get("survey_state", {}))
+    survey = state.get(str(_rlm_to_text(survey_id)))
+    if not isinstance(survey, dict):
+        return response
+
+    schema = survey.get("response_schema")
+    if schema in ("verdict", ":verdict"):
+        verdict_text = str(_rlm_to_text(response)).strip().lower()
+        if verdict_text not in ("satisfied", "dissatisfied"):
+            raise _RLMHelperError(
+                "survey verdict response must be 'satisfied' or 'dissatisfied'"
+            )
+        return verdict_text
+    return response
+
+def pending_surveys():
+    state = _rlm_normalize_survey_state(globals().get("survey_state", {}))
+    answers = _rlm_survey_answers_store()
+    out = []
+
+    for survey_id, survey in state.items():
+        answered_now = survey_id in answers
+        status = str(survey.get("status", "pending")).lower()
+        if answered_now or status == "answered":
+            continue
+
+        out.append({
+            "id": survey_id,
+            "scope": survey.get("scope"),
+            "question": survey.get("question"),
+            "required": _rlm_truthy(survey.get("required", False)),
+            "status": status
+        })
+
+    out.sort(key=lambda item: item.get("id", ""))
+    return out
+
+def answer_survey(survey_id, response, reason=""):
+    survey_id = str(_rlm_to_text(survey_id)).strip()
+    if survey_id == "":
+        raise _RLMHelperError("survey_id must be non-empty")
+
+    validated = _rlm_validate_survey_response(survey_id, response)
+    payload = {
+        "response": _rlm_to_text(validated),
+        "reason": _rlm_to_text(reason)
+    }
+    _rlm_survey_answers_store()[survey_id] = payload
+
+    return {
+        "survey_id": survey_id,
+        "response": payload["response"],
+        "reason": payload["reason"]
+    }
+
+def answer_child_survey(child_agent_id, survey_id, response, reason=""):
+    child_agent_id = _rlm_to_text(child_agent_id)
+    survey_id = str(_rlm_to_text(survey_id)).strip()
+    if survey_id == "":
+        raise _RLMHelperError("survey_id must be non-empty")
+
+    validated = _rlm_validate_survey_response(survey_id, response)
+
+    bridge_response = _rlm_bridge_request(
+        {
+            "op": "answer_survey",
+            "child_agent_id": child_agent_id,
+            "survey_id": survey_id,
+            "response": _rlm_to_text(validated),
+            "reason": _rlm_to_text(reason)
+        }
+    )
+
+    return _rlm_unwrap(
+        (bridge_response.get("status", "error"), bridge_response.get("payload")),
+        "answer_child_survey"
+    )
+
 def _rlm_write_json_atomic(path, payload):
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload), encoding="utf-8")
-    tmp.replace(path)
+    data = json.dumps(payload)
+    with _rlm_original_open(str(tmp), "w", encoding="utf-8") as f:
+        f.write(data)
+    os.replace(str(tmp), str(path))
 
 class _RLMSubagentCrash(RuntimeError):
     pass
@@ -298,7 +618,8 @@ def _rlm_bridge_request(payload, timeout_ms=None):
         deadline = time.time() + (timeout_ms / 1000.0)
         while time.time() < deadline:
             if response_path.exists():
-                data = json.loads(response_path.read_text(encoding="utf-8"))
+                with _rlm_original_open(str(response_path), "r", encoding="utf-8") as f:
+                    data = json.load(f)
                 try:
                     response_path.unlink()
                 except Exception:
@@ -406,19 +727,11 @@ def assess_lm_query(child_agent_id, verdict, reason=""):
         raise _RLMHelperError(
             "assess_lm_query verdict must be 'satisfied' or 'dissatisfied'"
         )
-
-    response = _rlm_bridge_request(
-        {
-            "op": "assess",
-            "child_agent_id": _rlm_to_text(child_agent_id),
-            "verdict": verdict_text,
-            "reason": _rlm_to_text(reason)
-        }
-    )
-
-    return _rlm_unwrap(
-        (response.get("status", "error"), response.get("payload")),
-        "assess_lm_query"
+    return answer_child_survey(
+        _rlm_to_text(child_agent_id),
+        "subagent_usefulness",
+        verdict_text,
+        reason=_rlm_to_text(reason)
     )
 
 def assess_dispatch(verdict, reason=""):
@@ -440,10 +753,5 @@ def assess_dispatch(verdict, reason=""):
         raise _RLMHelperError(
             "assess_dispatch verdict must be 'satisfied' or 'dissatisfied'"
         )
-
-    assessment = {
-        "verdict": verdict_text,
-        "reason": _rlm_to_text(reason)
-    }
-    globals()["_rlm_dispatch_assessment"] = assessment
-    return assessment
+    answer = answer_survey("dispatch_quality", verdict_text, reason=_rlm_to_text(reason))
+    return {"verdict": answer.get("response"), "reason": answer.get("reason", "")}

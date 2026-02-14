@@ -1,0 +1,25 @@
+{
+  "profile": "optimize_v1",
+  "target_task_count": 120,
+  "required_min_dispatches": 2,
+  "family_weights": {
+    "cross_section_compare": 1,
+    "constraint_extraction_matrix": 1,
+    "contradiction_hunt": 1,
+    "procedure_reconstruction": 1,
+    "evidence_linking": 1
+  },
+  "run_defaults": {
+    "batch_size": 12,
+    "quiet": true,
+    "sample_rate": 1.0,
+    "failure_tail_lines": 80,
+    "max_log_inspections": 3,
+    "inspection_tail_lines": 120
+  },
+  "ab_thresholds": {
+    "min_assessment_volume": 40,
+    "max_coverage_drop": 0.02,
+    "min_objective_delta": 0.03
+  }
+}

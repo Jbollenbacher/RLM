@@ -23,6 +23,12 @@ defmodule RLM.Session do
     workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
     dispatch_assessment_required = Keyword.get(opts, :dispatch_assessment_required, false)
 
+    survey_state =
+      opts
+      |> Keyword.get(:survey_state, RLM.Survey.init_state())
+      |> normalize_survey_state()
+      |> RLM.Survey.ensure_dispatch_quality(dispatch_assessment_required)
+
     lm_query_fn = RLM.Loop.build_lm_query(config, depth, workspace_root, workspace_read_only, id)
 
     bindings = [
@@ -30,6 +36,7 @@ defmodule RLM.Session do
       lm_query: lm_query_fn,
       parent_agent_id: parent_agent_id,
       dispatch_assessment_required: dispatch_assessment_required,
+      survey_state: survey_state,
       workspace_root: workspace_root,
       workspace_read_only: workspace_read_only,
       final_answer: nil,
@@ -38,12 +45,15 @@ defmodule RLM.Session do
       pending_subagent_final_answer: nil,
       pending_subagent_assessment_child_ids: [],
       subagent_assessment_checkin_deadline_iteration: nil,
+      pending_required_survey_final_answer: nil,
+      pending_required_survey_ids: [],
+      required_survey_checkin_deadline_iteration: nil,
       last_stdout: "",
       last_stderr: "",
       last_result: nil
     ]
 
-    history = [%{role: :system, content: RLM.Prompt.system_prompt()}]
+    history = [%{role: :system, content: RLM.Prompt.system_prompt(config)}]
 
     RLM.Observability.emit(
       [:rlm, :agent, :start],
@@ -56,6 +66,8 @@ defmodule RLM.Session do
         owner_pid: self()
       }
     )
+
+    emit_initial_required_surveys(id, parent_agent_id, survey_state)
 
     %__MODULE__{
       id: id,
@@ -149,4 +161,20 @@ defmodule RLM.Session do
 
   defp append_agent_to_context(context, {:error, reason}),
     do: append_turn(context, "Agent", "Error: #{RLM.Helpers.format_value(reason)}")
+
+  defp normalize_survey_state(%{} = survey_state), do: survey_state
+  defp normalize_survey_state(_), do: RLM.Survey.init_state()
+
+  defp emit_initial_required_surveys(agent_id, parent_agent_id, survey_state) do
+    survey_state
+    |> RLM.Survey.pending_required()
+    |> Enum.each(fn survey ->
+      RLM.Observability.survey_requested(agent_id, survey.id, %{
+        scope: survey.scope,
+        required: true,
+        question: survey.question,
+        parent_agent_id: parent_agent_id
+      })
+    end)
+  end
 end

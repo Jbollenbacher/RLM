@@ -35,6 +35,36 @@ defmodule RLM.LLMTest do
       assert code == "second = 2"
     end
 
+    test "extracts <python> tagged blocks" do
+      response = """
+      <python>
+      final_answer = "done"
+      </python>
+      """
+
+      assert {:ok, code} = RLM.LLM.extract_code(response)
+      assert code == "final_answer = \"done\""
+    end
+
+    test "accepts unfenced assess_dispatch call" do
+      response = "assess_dispatch(\"satisfied\", reason=\"clear rationale\")"
+
+      assert {:ok, code} = RLM.LLM.extract_code(response)
+      assert code == response
+    end
+
+    test "accepts unfenced answer_survey call" do
+      response = "answer_survey(\"dispatch_quality\", \"satisfied\", reason=\"clear rationale\")"
+
+      assert {:ok, code} = RLM.LLM.extract_code(response)
+      assert code == response
+    end
+
+    test "does not treat plain prose as code" do
+      response = "I will provide final_answer in the next message."
+      assert {:error, :no_code_block} = RLM.LLM.extract_code(response)
+    end
+
     test "returns no_code_block for non-binary input" do
       assert {:error, :no_code_block} = RLM.LLM.extract_code(nil)
     end

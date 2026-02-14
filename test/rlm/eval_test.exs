@@ -156,6 +156,22 @@ print(state.get("assessment", {}).get("verdict"))
       assert stdout =~ "satisfied"
     end
 
+    test "answer_child_survey records generic child survey responses" do
+      {:ok, stdout, _stderr, _result, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+job_id = lm_query("subtask")
+_ = await_lm_query(job_id, timeout_ms=1_000)
+state = answer_child_survey(job_id, "subagent_usefulness", "satisfied", reason="useful")
+print(state.get("assessment", {}).get("verdict"))
+],
+          lm_query: fn _text, _opts -> {:ok, "done"} end,
+          subagent_assessment_sample_rate: 1.0
+        )
+
+      assert stdout =~ "satisfied"
+    end
+
     test "assess_lm_query errors when job has not terminated" do
       {:ok, stdout, _stderr, _result, _bindings} =
         RLM.Eval.eval(
@@ -175,9 +191,56 @@ except Exception as exc:
 
       assert stdout =~ "still running"
     end
+
+    test "bridge requests stay functional under workspace guard for multiple await calls" do
+      workspace =
+        Path.join(System.tmp_dir!(), "rlm_eval_workspace_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(workspace)
+
+      on_exit(fn -> File.rm_rf(workspace) end)
+
+      {:ok, stdout, _stderr, _result, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+job_a = lm_query("subtask-a")
+job_b = lm_query("subtask-b")
+
+result_a = await_lm_query(job_a, timeout_ms=2_000)
+result_b = await_lm_query(job_b, timeout_ms=2_000)
+
+print(result_a)
+print(result_b)
+],
+          workspace_root: workspace,
+          workspace_read_only: true,
+          lm_query: fn text, _opts -> {:ok, "done:" <> text} end
+        )
+
+      assert stdout =~ "done:subtask-a"
+      assert stdout =~ "done:subtask-b"
+    end
   end
 
   describe "dispatch assessment helper" do
+    test "pending_surveys and answer_survey support generic local surveys" do
+      survey_state =
+        RLM.Survey.init_state()
+        |> RLM.Survey.ensure_dispatch_quality(true)
+
+      {:ok, stdout, _stderr, _result, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+print(len(pending_surveys()))
+answer_survey("dispatch_quality", "satisfied", reason="clear dispatch")
+print(len(pending_surveys()))
+],
+          survey_state: survey_state
+        )
+
+      assert stdout == "1\n0\n"
+    end
+
     test "captures dispatch assessment in bindings" do
       {:ok, _stdout, _stderr, _result, bindings} =
         RLM.Eval.eval(

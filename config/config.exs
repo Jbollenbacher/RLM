@@ -19,7 +19,8 @@ config :rlm,
   http_pool_count: 1,
   http_pool_timeout: 30_000,
   http_receive_timeout: 120_000,
-  obs_max_context_window_chars: 200_000
+  obs_max_context_window_chars: 200_000,
+  system_prompt_path: nil
 
 config :pythonx, :uv_init,
   pyproject_toml: """

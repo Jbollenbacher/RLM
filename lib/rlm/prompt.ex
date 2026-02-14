@@ -24,21 +24,50 @@ defmodule RLM.Prompt do
   [REPL][AGENT]
   [Dispatch quality assessment is required for this sampled run.
   Your final answer has been staged and will be returned automatically.
-  In this turn, call `assess_dispatch("satisfied"|"dissatisfied", reason="...")`.
+  In this turn, respond with exactly one Python code block that only records the assessment:
+  ```python
+  assess_dispatch("satisfied", reason="clear and specific rationale")
+  ```
+  Any response without executable Python code will be treated as a failed check-in.
+  Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
+  Do not set `final_answer` again.
   Do not redo prior work.]
   """
   @subagent_assessment_checkin_nudge_prefix """
   [REPL][AGENT]
   [Subagent assessments are required before finalizing.
   Your final answer has been staged and will be returned automatically.
-  In this turn, assess each pending sampled subagent with:
+  In this turn, respond with exactly one Python code block and only record missing assessments with:
   `assess_lm_query(child_agent_id, "satisfied"|"dissatisfied", reason="...")`.
+  Any response without executable Python code will be treated as a failed check-in.
+  Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
+  Do not set `final_answer` again.
+  Do not redo prior work.
+  """
+  @survey_checkin_nudge_prefix """
+  [REPL][AGENT]
+  [Required surveys are pending before finalization.
+  Your final answer has been staged and will be returned automatically.
+  In this turn, respond with exactly one Python code block and only answer pending surveys with:
+  `answer_survey(survey_id, response, reason="...")`.
+  Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
+  Do not set `final_answer` again.
   Do not redo prior work.
   """
 
+  @default_system_prompt_path Path.join(:code.priv_dir(:rlm), "system_prompt.md")
+
   @spec system_prompt() :: String.t()
-  def system_prompt do
-    File.read!(Path.join(:code.priv_dir(:rlm), "system_prompt.md"))
+  def system_prompt, do: File.read!(@default_system_prompt_path)
+
+  @spec system_prompt(RLM.Config.t() | map() | nil) :: String.t()
+  def system_prompt(nil), do: system_prompt()
+
+  def system_prompt(config) do
+    case Map.get(config, :system_prompt_path) do
+      path when is_binary(path) and path != "" -> File.read!(path)
+      _ -> system_prompt()
+    end
   end
 
   @spec initial_user_message(String.t(), keyword()) :: String.t()
@@ -112,6 +141,19 @@ defmodule RLM.Prompt do
 
     @subagent_assessment_checkin_nudge_prefix <>
       "\nPending child_agent_id values: " <>
+      if(pending == "", do: "(none captured)", else: pending) <> "]"
+  end
+
+  @spec survey_checkin_nudge([String.t()]) :: String.t()
+  def survey_checkin_nudge(survey_ids) when is_list(survey_ids) do
+    pending =
+      survey_ids
+      |> Enum.map(&to_string/1)
+      |> Enum.uniq()
+      |> Enum.join(", ")
+
+    @survey_checkin_nudge_prefix <>
+      "\nPending survey_id values: " <>
       if(pending == "", do: "(none captured)", else: pending) <> "]"
   end
 

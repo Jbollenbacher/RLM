@@ -93,11 +93,71 @@ Quick module overview:
 - `RLM.Loop.Compaction` — Context-window threshold compaction and compacted-history binding updates
 - `RLM.Loop.SubagentReturn` — `[SUBAGENT_RETURN]` message construction/injection from broker updates
 - `RLM.Loop.EvalFeedback` — Eval invocation + `[REPL][AGENT]` feedback shaping
-- `RLM.Loop.Finalization` — Dispatch/subagent assessment staging and check-in finalization gates
+- `RLM.Loop.Finalization` — Required-survey staging and check-in finalization gates (including assessment wrappers)
+- `RLM.Survey` — Generic survey state + validation helpers
 - `RLM.Eval` — Pythonx-backed code evaluation with IO capture
-- `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, async `lm_query` with `poll_lm_query`/`await_lm_query`/`cancel_lm_query`, `assess_lm_query`, and optional workspace access helpers)
+- `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, async `lm_query` with `poll_lm_query`/`await_lm_query`/`cancel_lm_query`, survey helpers `pending_surveys`/`answer_survey`/`answer_child_survey`, `assess_lm_query`/`assess_dispatch`, and optional workspace access helpers)
 - `RLM.LLM` — OpenAI-compatible API client (via Req)
 - `RLM.Truncate` — Head+tail truncation to bound context size
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings
 - `RLM.Observability.Router`/`RLM.Observability.UI` — Embedded web observability API + HTML shell with JS parts loaded from `priv/observability_ui/*.js`
 - `Mix.Tasks.Rlm` — CLI entrypoint (single-turn and interactive sessions)
+
+Runtime contract notes:
+
+- Each model turn is expected to contain executable Python (prefer fenced ` ```python ... ``` ` blocks). Check-in turns without executable Python are treated as failed turns.
+- Code extraction is tolerant to common formatting drift (` ```python ... ``` `, `<python>...</python>`, and clearly code-like unfenced responses), but fenced Python remains the primary contract.
+- `--export-logs` / `--export-logs-path` export failures are handled defensively (warning on stderr instead of crashing the CLI run).
+
+## Benchmark Optimization Harness
+
+The repo now includes a survey-driven benchmark harness under `bench/` and `mix rlm.bench.*` tasks.
+It optimizes prompt variants using internal delegation survey signals (dispatch quality + subagent usefulness), not external answer keys.
+
+```bash
+# 1) Pull benchmark source corpus into gitignored bench_data/raw/
+mix rlm.bench.pull
+
+# 2) Build delegation-heavy benchmark task pool
+mix rlm.bench.build --profile bench/profiles/optimize_v1.json
+
+# 3) Run a quiet benchmark batch (logs saved per task)
+mix rlm.bench.run \
+  --tasks bench_data/tasks/pool_v1.jsonl \
+  --variant bench/variants/champion_v1.md \
+  --limit 12 \
+  --quiet
+
+# 4) Compare two runs (survey objective + coverage thresholds)
+mix rlm.bench.ab --run-a <run_id_a> --run-b <run_id_b>
+
+# 5) Run autonomous prompt-only optimization cycles
+mix rlm.bench.optimize \
+  --tasks bench_data/tasks/pool_v1.jsonl \
+  --base-variant bench/variants/champion_v1.md \
+  --cycles 10
+
+# Optional: stream logs to a temp file and inspect via tail (low context pollution)
+mix rlm.bench.run \
+  --tasks bench_data/tasks/pool_v1.jsonl \
+  --variant bench/variants/champion_v1.md \
+  --limit 12 \
+  --stream-logs \
+  > /tmp/rlm_bench_stream.log 2>&1
+
+tail -n 120 -f /tmp/rlm_bench_stream.log
+```
+
+Quiet mode suppresses per-task subprocess output and writes logs to:
+- `bench_data/runs/<run_id>/task_logs/<task_id>.log`
+- `bench_data/runs/<run_id>/task_logs/<task_id>.meta.json`
+
+Benchmark runs export debug/full event logs by default, and optimizer cycles can automatically inspect weak runs to surface failure patterns before the next prompt tweak.
+Benchmark task subprocesses run with `MIX_NO_COMPILE=1` to avoid repeated per-task compilation churn.
+The benchmark champion variant (`bench/variants/champion_v1.md`) is kept aligned with the base runtime response contract in `priv/system_prompt.md`.
+
+Inspect a saved logfile tail without rerunning:
+
+```bash
+mix rlm.bench.logs --run-id <run_id> --task <task_id> --tail 120
+```

@@ -52,22 +52,79 @@ defmodule RLM.LLM do
 
   @spec extract_code(term()) :: {:ok, String.t()} | {:error, :no_code_block}
   def extract_code(response) when is_binary(response) do
+    with nil <- extract_fenced_code(response),
+         nil <- extract_tagged_code(response),
+         nil <- extract_unfenced_code(response) do
+      {:error, :no_code_block}
+    else
+      code -> {:ok, code}
+    end
+  end
+
+  def extract_code(_), do: {:error, :no_code_block}
+
+  defp extract_fenced_code(response) do
     python = Regex.scan(~r/```(?:[Pp]ython|[Pp]y)\s*\n(.*?)```/s, response)
     plain = Regex.scan(~r/```\s*\n(.*?)```/s, response)
 
     cond do
       python != [] ->
-        {:ok, python |> List.last() |> Enum.at(1) |> String.trim()}
+        python |> List.last() |> Enum.at(1) |> String.trim()
 
       plain != [] ->
-        {:ok, plain |> List.last() |> Enum.at(1) |> String.trim()}
+        plain |> List.last() |> Enum.at(1) |> String.trim()
 
       true ->
-        {:error, :no_code_block}
+        nil
     end
   end
 
-  def extract_code(_), do: {:error, :no_code_block}
+  defp extract_tagged_code(response) do
+    case Regex.scan(~r/<python>\s*(.*?)\s*<\/python>/is, response) do
+      [] -> nil
+      matches -> matches |> List.last() |> Enum.at(1) |> String.trim()
+    end
+  end
+
+  defp extract_unfenced_code(response) do
+    trimmed = String.trim(response)
+
+    cond do
+      trimmed == "" ->
+        nil
+
+      String.contains?(trimmed, "```") ->
+        nil
+
+      likely_unfenced_python?(trimmed) ->
+        trimmed
+
+      true ->
+        nil
+    end
+  end
+
+  defp likely_unfenced_python?(text) do
+    lines = String.split(text, "\n", trim: true)
+
+    code_like_count =
+      Enum.count(lines, fn line ->
+        Regex.match?(
+          ~r/^\s*(final_answer\s*=|assess_dispatch\(|assess_lm_query\(|answer_(?:child_)?survey\(|pending_surveys\(|(?:await_|poll_|cancel_)?lm_query\(|[A-Za-z_]\w*\s*=|for\s+\w+\s+in\s+.*:|if\s+.*:|while\s+.*:|def\s+\w+\(|import\s+\w+)/,
+          line
+        )
+      end)
+
+    has_agent_primitive? =
+      String.contains?(text, "final_answer =") or
+        String.contains?(text, "assess_dispatch(") or
+        String.contains?(text, "assess_lm_query(") or
+        String.contains?(text, "answer_survey(") or
+        String.contains?(text, "answer_child_survey(") or
+        String.contains?(text, "lm_query(")
+
+    (has_agent_primitive? and code_like_count >= 1) or code_like_count >= 2
+  end
 
   defp to_api_map(%{role: role, content: content}) do
     %{"role" => to_string(role), "content" => content}

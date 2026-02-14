@@ -16,6 +16,7 @@ defmodule Mix.Tasks.Rlm do
           single_turn: :boolean,
           export_logs: :boolean,
           export_logs_path: :string,
+          export_logs_debug: :boolean,
           verbose: :boolean,
           debug: :boolean,
           web: :boolean,
@@ -32,6 +33,7 @@ defmodule Mix.Tasks.Rlm do
     workspace_read_only = Keyword.get(opts, :read_only, false)
     validate_read_only(workspace_root, workspace_read_only)
     export_logs_path = resolve_export_logs_path(opts)
+    export_logs_debug = Keyword.get(opts, :export_logs_debug, false)
 
     context = read_stdin()
     web? = Keyword.get(opts, :web, false)
@@ -79,7 +81,7 @@ defmodule Mix.Tasks.Rlm do
             )
 
           exit_code = print_single_turn_result(result)
-          maybe_export_logs(export_logs_path)
+          maybe_export_logs(export_logs_path, export_logs_debug)
 
           if exit_code != 0 do
             System.halt(exit_code)
@@ -191,17 +193,42 @@ defmodule Mix.Tasks.Rlm do
     end
   end
 
-  defp maybe_export_logs(nil), do: :ok
+  defp maybe_export_logs(nil, _debug), do: :ok
 
-  defp maybe_export_logs(path) do
+  defp maybe_export_logs(path, debug) do
     target = normalize_export_path(path)
     File.mkdir_p!(Path.dirname(target))
 
-    export = RLM.Observability.Export.full_agent_logs(include_system: true, debug: false)
-    File.write!(target, Jason.encode!(export, pretty: true))
+    case full_agent_logs_export(debug) do
+      {:ok, export} ->
+        File.write!(target, Jason.encode!(export, pretty: true))
+        IO.puts(:stderr, "Saved agent logs to #{target}")
 
-    IO.puts(:stderr, "Saved agent logs to #{target}")
+      {:error, reason} ->
+        IO.puts(
+          :stderr,
+          "Warning: failed to export agent logs to #{target}: #{format_export_error(reason)}"
+        )
+    end
   end
+
+  defp full_agent_logs_export(debug) do
+    with {:module, _} <- Code.ensure_loaded(RLM.Observability.Export),
+         true <- function_exported?(RLM.Observability.Export, :full_agent_logs, 1) do
+      {:ok, RLM.Observability.Export.full_agent_logs(include_system: true, debug: debug)}
+    else
+      {:error, reason} -> {:error, reason}
+      false -> {:error, :full_agent_logs_not_exported}
+      other -> {:error, other}
+    end
+  rescue
+    error -> {:error, Exception.message(error)}
+  catch
+    kind, value -> {:error, {kind, value}}
+  end
+
+  defp format_export_error(reason) when is_binary(reason), do: reason
+  defp format_export_error(reason), do: inspect(reason)
 
   defp normalize_export_path(path) do
     expanded = Path.expand(path)
