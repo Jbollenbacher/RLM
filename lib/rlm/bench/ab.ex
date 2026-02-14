@@ -88,6 +88,8 @@ defmodule RLM.Bench.AB do
         objective: objective_a,
         delegation_coverage: coverage_a,
         assessment_volume: trunc(num(a, "assessment_volume")),
+        task_completion_rate: num(a, "task_completion_rate"),
+        failed_count: trunc(num(a, "failed_count")),
         overall_satisfied_rate: num(a, "overall_satisfied_rate"),
         reasons: Map.get(a, "reasons", %{})
       },
@@ -96,12 +98,15 @@ defmodule RLM.Bench.AB do
         objective: objective_b,
         delegation_coverage: coverage_b,
         assessment_volume: assessment_volume_b,
+        task_completion_rate: num(b, "task_completion_rate"),
+        failed_count: trunc(num(b, "failed_count")),
         overall_satisfied_rate: num(b, "overall_satisfied_rate"),
         reasons: Map.get(b, "reasons", %{})
       },
       deltas: %{
         objective: objective_delta,
         delegation_coverage: coverage_delta,
+        task_completion_rate: num(b, "task_completion_rate") - num(a, "task_completion_rate"),
         overall_satisfied_rate:
           num(b, "overall_satisfied_rate") - num(a, "overall_satisfied_rate")
       },
@@ -116,18 +121,23 @@ defmodule RLM.Bench.AB do
       "- Decision: **#{report.decision}**",
       "- Objective delta (B-A): #{Float.round(report.deltas.objective, 4)}",
       "- Coverage delta (B-A): #{Float.round(report.deltas.delegation_coverage, 4)}",
+      "- Completion-rate delta (B-A): #{Float.round(report.deltas.task_completion_rate, 4)}",
       "- Satisfied-rate delta (B-A): #{Float.round(report.deltas.overall_satisfied_rate, 4)}",
       "",
       "## Run A",
       "- run_id: #{report.run_a.run_id}",
       "- objective: #{Float.round(report.run_a.objective, 4)}",
       "- delegation_coverage: #{Float.round(report.run_a.delegation_coverage, 4)}",
+      "- task_completion_rate: #{Float.round(report.run_a.task_completion_rate, 4)}",
+      "- failed_count: #{report.run_a.failed_count}",
       "- assessment_volume: #{report.run_a.assessment_volume}",
       "",
       "## Run B",
       "- run_id: #{report.run_b.run_id}",
       "- objective: #{Float.round(report.run_b.objective, 4)}",
       "- delegation_coverage: #{Float.round(report.run_b.delegation_coverage, 4)}",
+      "- task_completion_rate: #{Float.round(report.run_b.task_completion_rate, 4)}",
+      "- failed_count: #{report.run_b.failed_count}",
       "- assessment_volume: #{report.run_b.assessment_volume}",
       ""
     ]

@@ -79,6 +79,8 @@ defmodule RLM.Bench.MetricsTest do
     summary = Metrics.summarize_results(results)
     assert summary.task_count == 2
     assert summary.completed_count == 1
+    assert summary.failed_count == 1
+    assert summary.task_completion_rate == 0.5
     assert summary.delegation_coverage == 0.5
     assert summary.assessment_volume == 4
     assert summary.objective > 0

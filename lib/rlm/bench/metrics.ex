@@ -39,6 +39,7 @@ defmodule RLM.Bench.Metrics do
   def summarize_results(results) when is_list(results) do
     task_count = length(results)
     completed_count = Enum.count(results, &(&1[:status] == :ok))
+    failed_count = task_count - completed_count
 
     dispatch_satisfied = Enum.reduce(results, 0, &(&2 + get_metric(&1, :dispatch_satisfied)))
 
@@ -62,6 +63,7 @@ defmodule RLM.Bench.Metrics do
     satisfied_total = dispatch_satisfied + subagent_satisfied
 
     delegation_coverage = safe_div(delegation_met_count, task_count)
+    task_completion_rate = safe_div(completed_count, task_count)
     overall_satisfied_rate = safe_div(satisfied_total, assessment_total)
 
     reasons = Enum.flat_map(results, &get_metric(&1, :reasons, []))
@@ -69,7 +71,8 @@ defmodule RLM.Bench.Metrics do
     %{
       task_count: task_count,
       completed_count: completed_count,
-      failed_count: task_count - completed_count,
+      failed_count: failed_count,
+      task_completion_rate: task_completion_rate,
       dispatch_satisfied: dispatch_satisfied,
       dispatch_dissatisfied: dispatch_dissatisfied,
       dispatch_missing: dispatch_missing,
