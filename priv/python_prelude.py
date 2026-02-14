@@ -461,6 +461,7 @@ def list_bindings():
         "ok", "fail",
         "list_bindings",
         "lm_query", "poll_lm_query", "await_lm_query", "cancel_lm_query", "assess_lm_query",
+        "pending_surveys", "answer_survey", "answer_child_survey",
         "assess_dispatch",
         "print"
     }
@@ -478,6 +479,109 @@ def list_bindings():
         out.append((name, type(value).__name__, size))
     out.sort(key=lambda item: item[0])
     return out
+
+def _rlm_normalize_survey_state(raw):
+    if not isinstance(raw, dict):
+        return {}
+
+    state = {}
+    for key, value in raw.items():
+        survey_id = str(_rlm_to_text(key))
+        if isinstance(value, dict):
+            normalized = {}
+            for inner_key, inner_value in value.items():
+                normalized[str(_rlm_to_text(inner_key))] = _rlm_to_text(inner_value)
+            state[survey_id] = normalized
+        else:
+            state[survey_id] = {"id": survey_id}
+    return state
+
+def _rlm_survey_answers_store():
+    answers = globals().get("_rlm_survey_answers")
+    if isinstance(answers, dict):
+        return answers
+    answers = {}
+    globals()["_rlm_survey_answers"] = answers
+    return answers
+
+def _rlm_validate_survey_response(survey_id, response):
+    state = _rlm_normalize_survey_state(globals().get("survey_state", {}))
+    survey = state.get(str(_rlm_to_text(survey_id)))
+    if not isinstance(survey, dict):
+        return response
+
+    schema = survey.get("response_schema")
+    if schema in ("verdict", ":verdict"):
+        verdict_text = str(_rlm_to_text(response)).strip().lower()
+        if verdict_text not in ("satisfied", "dissatisfied"):
+            raise _RLMHelperError(
+                "survey verdict response must be 'satisfied' or 'dissatisfied'"
+            )
+        return verdict_text
+    return response
+
+def pending_surveys():
+    state = _rlm_normalize_survey_state(globals().get("survey_state", {}))
+    answers = _rlm_survey_answers_store()
+    out = []
+
+    for survey_id, survey in state.items():
+        answered_now = survey_id in answers
+        status = str(survey.get("status", "pending")).lower()
+        if answered_now or status == "answered":
+            continue
+
+        out.append({
+            "id": survey_id,
+            "scope": survey.get("scope"),
+            "question": survey.get("question"),
+            "required": _rlm_truthy(survey.get("required", False)),
+            "status": status
+        })
+
+    out.sort(key=lambda item: item.get("id", ""))
+    return out
+
+def answer_survey(survey_id, response, reason=""):
+    survey_id = str(_rlm_to_text(survey_id)).strip()
+    if survey_id == "":
+        raise _RLMHelperError("survey_id must be non-empty")
+
+    validated = _rlm_validate_survey_response(survey_id, response)
+    payload = {
+        "response": _rlm_to_text(validated),
+        "reason": _rlm_to_text(reason)
+    }
+    _rlm_survey_answers_store()[survey_id] = payload
+
+    return {
+        "survey_id": survey_id,
+        "response": payload["response"],
+        "reason": payload["reason"]
+    }
+
+def answer_child_survey(child_agent_id, survey_id, response, reason=""):
+    child_agent_id = _rlm_to_text(child_agent_id)
+    survey_id = str(_rlm_to_text(survey_id)).strip()
+    if survey_id == "":
+        raise _RLMHelperError("survey_id must be non-empty")
+
+    validated = _rlm_validate_survey_response(survey_id, response)
+
+    bridge_response = _rlm_bridge_request(
+        {
+            "op": "answer_survey",
+            "child_agent_id": child_agent_id,
+            "survey_id": survey_id,
+            "response": _rlm_to_text(validated),
+            "reason": _rlm_to_text(reason)
+        }
+    )
+
+    return _rlm_unwrap(
+        (bridge_response.get("status", "error"), bridge_response.get("payload")),
+        "answer_child_survey"
+    )
 
 def _rlm_write_json_atomic(path, payload):
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -623,19 +727,11 @@ def assess_lm_query(child_agent_id, verdict, reason=""):
         raise _RLMHelperError(
             "assess_lm_query verdict must be 'satisfied' or 'dissatisfied'"
         )
-
-    response = _rlm_bridge_request(
-        {
-            "op": "assess",
-            "child_agent_id": _rlm_to_text(child_agent_id),
-            "verdict": verdict_text,
-            "reason": _rlm_to_text(reason)
-        }
-    )
-
-    return _rlm_unwrap(
-        (response.get("status", "error"), response.get("payload")),
-        "assess_lm_query"
+    return answer_child_survey(
+        _rlm_to_text(child_agent_id),
+        "subagent_usefulness",
+        verdict_text,
+        reason=_rlm_to_text(reason)
     )
 
 def assess_dispatch(verdict, reason=""):
@@ -657,10 +753,5 @@ def assess_dispatch(verdict, reason=""):
         raise _RLMHelperError(
             "assess_dispatch verdict must be 'satisfied' or 'dissatisfied'"
         )
-
-    assessment = {
-        "verdict": verdict_text,
-        "reason": _rlm_to_text(reason)
-    }
-    globals()["_rlm_dispatch_assessment"] = assessment
-    return assessment
+    answer = answer_survey("dispatch_quality", verdict_text, reason=_rlm_to_text(reason))
+    return {"verdict": answer.get("response"), "reason": answer.get("reason", "")}

@@ -3,7 +3,7 @@ defmodule RLM.Bench.MetricsTest do
 
   alias RLM.Bench.Metrics
 
-  test "extracts delegation and assessment metrics from export" do
+  test "extracts delegation and assessment metrics from survey events" do
     export = %{
       format: "rlm_agent_log_v1",
       agent_tree: [
@@ -14,20 +14,33 @@ defmodule RLM.Bench.MetricsTest do
             %{
               kind: "event",
               event: %{
-                type: "subagent_assessment",
-                payload: %{verdict: "satisfied", reason: "good"}
+                type: "survey_answered",
+                payload: %{
+                  survey_id: "subagent_usefulness",
+                  response: "satisfied",
+                  reason: "good",
+                  scope: "child"
+                }
               }
             },
             %{
               kind: "event",
               event: %{
-                type: "dispatch_assessment",
-                payload: %{verdict: "dissatisfied", reason: "unclear dispatch"}
+                type: "survey_answered",
+                payload: %{
+                  survey_id: "dispatch_quality",
+                  response: "dissatisfied",
+                  reason: "unclear dispatch",
+                  scope: "agent"
+                }
               }
             },
             %{
               kind: "event",
-              event: %{type: "dispatch_assessment_missing", payload: %{status: "ok"}}
+              event: %{
+                type: "survey_missing",
+                payload: %{survey_id: "dispatch_quality", status: "ok", scope: "agent"}
+              }
             }
           ]
         }
@@ -58,6 +71,8 @@ defmodule RLM.Bench.MetricsTest do
           subagent_satisfied: 1,
           subagent_dissatisfied: 0,
           subagent_missing: 0,
+          survey_events_observed: 2,
+          warnings: [],
           reasons: []
         }
       },
@@ -71,6 +86,8 @@ defmodule RLM.Bench.MetricsTest do
           subagent_satisfied: 0,
           subagent_dissatisfied: 0,
           subagent_missing: 1,
+          survey_events_observed: 0,
+          warnings: ["no survey events observed; objective defaults to 0.0"],
           reasons: ["timed out"]
         }
       }
@@ -83,7 +100,19 @@ defmodule RLM.Bench.MetricsTest do
     assert summary.task_completion_rate == 0.5
     assert summary.delegation_coverage == 0.5
     assert summary.assessment_volume == 4
+    assert summary.tasks_with_no_survey_events == 1
+    assert "no survey events observed; objective defaults to 0.0" in summary.warnings
     assert summary.objective > 0
     assert summary.reasons.counts.timeout_or_runtime_issue == 1
+  end
+
+  test "flags exports with no survey events" do
+    export = %{format: "rlm_agent_log_v1", agent_tree: [%{agent: %{id: "agent_1"}, timeline: []}]}
+    path = Path.join(System.tmp_dir!(), "export_#{System.unique_integer([:positive])}.json")
+    File.write!(path, Jason.encode!(export))
+
+    assert {:ok, metrics} = Metrics.from_export(path, 0)
+    assert metrics.survey_events_observed == 0
+    assert metrics.warnings == ["no survey events observed; objective defaults to 0.0"]
   end
 end

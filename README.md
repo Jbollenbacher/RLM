@@ -93,9 +93,10 @@ Quick module overview:
 - `RLM.Loop.Compaction` — Context-window threshold compaction and compacted-history binding updates
 - `RLM.Loop.SubagentReturn` — `[SUBAGENT_RETURN]` message construction/injection from broker updates
 - `RLM.Loop.EvalFeedback` — Eval invocation + `[REPL][AGENT]` feedback shaping
-- `RLM.Loop.Finalization` — Dispatch/subagent assessment staging and check-in finalization gates
+- `RLM.Loop.Finalization` — Required-survey staging and check-in finalization gates (including assessment wrappers)
+- `RLM.Survey` — Generic survey state + validation helpers
 - `RLM.Eval` — Pythonx-backed code evaluation with IO capture
-- `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, async `lm_query` with `poll_lm_query`/`await_lm_query`/`cancel_lm_query`, `assess_lm_query`, and optional workspace access helpers)
+- `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, async `lm_query` with `poll_lm_query`/`await_lm_query`/`cancel_lm_query`, survey helpers `pending_surveys`/`answer_survey`/`answer_child_survey`, `assess_lm_query`/`assess_dispatch`, and optional workspace access helpers)
 - `RLM.LLM` — OpenAI-compatible API client (via Req)
 - `RLM.Truncate` — Head+tail truncation to bound context size
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings
@@ -110,8 +111,8 @@ Runtime contract notes:
 
 ## Benchmark Optimization Harness
 
-The repo now includes an assessment-driven benchmark harness under `bench/` and `mix rlm.bench.*` tasks.
-It optimizes prompt variants using internal delegation assessments, not external answer keys.
+The repo now includes a survey-driven benchmark harness under `bench/` and `mix rlm.bench.*` tasks.
+It optimizes prompt variants using internal delegation survey signals (dispatch quality + subagent usefulness), not external answer keys.
 
 ```bash
 # 1) Pull benchmark source corpus into gitignored bench_data/raw/
@@ -127,7 +128,7 @@ mix rlm.bench.run \
   --limit 12 \
   --quiet
 
-# 4) Compare two runs (assessment objective + coverage thresholds)
+# 4) Compare two runs (survey objective + coverage thresholds)
 mix rlm.bench.ab --run-a <run_id_a> --run-b <run_id_b>
 
 # 5) Run autonomous prompt-only optimization cycles

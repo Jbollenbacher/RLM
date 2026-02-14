@@ -53,6 +53,13 @@ defmodule RLM.LLMTest do
       assert code == response
     end
 
+    test "accepts unfenced answer_survey call" do
+      response = "answer_survey(\"dispatch_quality\", \"satisfied\", reason=\"clear rationale\")"
+
+      assert {:ok, code} = RLM.LLM.extract_code(response)
+      assert code == response
+    end
+
     test "does not treat plain prose as code" do
       response = "I will provide final_answer in the next message."
       assert {:error, :no_code_block} = RLM.LLM.extract_code(response)

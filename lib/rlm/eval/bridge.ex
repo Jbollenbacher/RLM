@@ -167,6 +167,9 @@ defmodule RLM.Eval.Bridge do
       "assess" ->
         handle_assess(payload, parent_agent_id)
 
+      "answer_survey" ->
+        handle_answer_survey(payload, parent_agent_id)
+
       _ ->
         error_payload("Malformed lm_query request: unsupported op `#{op}`")
     end
@@ -248,19 +251,14 @@ defmodule RLM.Eval.Bridge do
        when is_binary(child_agent_id) and is_binary(parent_agent_id) do
     reason = Map.get(payload, "reason", "") |> to_string()
 
-    with {:ok, parsed_verdict} <- parse_assessment_verdict(verdict),
-         {:ok, state} <-
-           RLM.Subagent.Broker.assess(parent_agent_id, child_agent_id, parsed_verdict, reason) do
-      if assessment = Map.get(state, :assessment) do
-        RLM.Observability.subagent_assessment(
-          parent_agent_id,
-          child_agent_id,
-          assessment.verdict,
-          assessment.reason
-        )
-      end
-
-      ok_payload(state)
+    with {:ok, parsed_verdict} <- parse_assessment_verdict(verdict) do
+      answer_child_survey(
+        parent_agent_id,
+        child_agent_id,
+        RLM.Survey.subagent_usefulness_id(),
+        parsed_verdict,
+        reason
+      )
     else
       {:error, reason} -> error_payload(reason)
     end
@@ -268,6 +266,92 @@ defmodule RLM.Eval.Bridge do
 
   defp handle_assess(_payload, _parent_agent_id),
     do: error_payload("Malformed assess_lm_query request")
+
+  defp handle_answer_survey(
+         %{
+           "child_agent_id" => child_agent_id,
+           "survey_id" => survey_id,
+           "response" => response
+         } = payload,
+         parent_agent_id
+       )
+       when is_binary(child_agent_id) and is_binary(parent_agent_id) and is_binary(survey_id) do
+    reason = Map.get(payload, "reason", "") |> to_string()
+
+    answer_child_survey(parent_agent_id, child_agent_id, survey_id, response, reason)
+  end
+
+  defp handle_answer_survey(_payload, _parent_agent_id),
+    do: error_payload("Malformed answer_survey request")
+
+  defp answer_child_survey(parent_agent_id, child_agent_id, survey_id, response, reason) do
+    case RLM.Subagent.Broker.answer_survey(
+           parent_agent_id,
+           child_agent_id,
+           survey_id,
+           response,
+           reason
+         ) do
+      {:ok, state} ->
+        {resolved_response, resolved_reason} = resolved_answer(state, survey_id, response, reason)
+
+        maybe_emit_survey_answer(
+          parent_agent_id,
+          child_agent_id,
+          survey_id,
+          resolved_response,
+          resolved_reason
+        )
+
+        ok_payload(state)
+
+      {:error, reason} ->
+        error_payload(reason)
+    end
+  end
+
+  defp resolved_answer(state, survey_id, response, reason) do
+    survey_response =
+      state
+      |> Map.get(:answered_surveys, [])
+      |> Enum.find(fn item -> Map.get(item, :id) == survey_id end)
+
+    resolved_response =
+      if survey_response, do: Map.get(survey_response, :response), else: response
+
+    resolved_reason = if survey_response, do: Map.get(survey_response, :reason), else: reason
+    {resolved_response, resolved_reason}
+  end
+
+  defp maybe_emit_survey_answer(
+         parent_agent_id,
+         child_agent_id,
+         survey_id,
+         resolved_response,
+         resolved_reason
+       ) do
+    emit_generic_child_survey_answer(
+      parent_agent_id,
+      child_agent_id,
+      survey_id,
+      resolved_response,
+      resolved_reason
+    )
+  end
+
+  defp emit_generic_child_survey_answer(
+         parent_agent_id,
+         child_agent_id,
+         survey_id,
+         response,
+         reason
+       ) do
+    RLM.Observability.survey_answered(parent_agent_id, survey_id, response, %{
+      child_agent_id: child_agent_id,
+      reason: reason,
+      scope: :child
+    })
+  end
 
   defp ok_payload(value), do: %{"status" => "ok", "payload" => Codec.json_term(value)}
   defp error_payload(reason), do: %{"status" => "error", "payload" => Codec.json_term(reason)}
@@ -312,20 +396,19 @@ defmodule RLM.Eval.Bridge do
   defp normalize_timeout(timeout) when is_integer(timeout) and timeout > 0, do: timeout
   defp normalize_timeout(_timeout), do: 180_000
 
-  defp parse_assessment_verdict(verdict) when is_atom(verdict) do
-    parse_assessment_verdict(Atom.to_string(verdict))
-  end
+  defp parse_assessment_verdict(verdict) do
+    case RLM.Survey.parse_verdict(verdict) do
+      {:ok, parsed} ->
+        {:ok, parsed}
 
-  defp parse_assessment_verdict(verdict) when is_binary(verdict) do
-    case verdict |> String.trim() |> String.downcase() do
-      "satisfied" -> {:ok, :satisfied}
-      "dissatisfied" -> {:ok, :dissatisfied}
-      other -> {:error, "Invalid verdict `#{other}`. Use `satisfied` or `dissatisfied`."}
+      :error when is_binary(verdict) ->
+        other = verdict |> String.trim() |> String.downcase()
+        {:error, "Invalid verdict `#{other}`. Use `satisfied` or `dissatisfied`."}
+
+      :error ->
+        {:error, "Invalid verdict. Use `satisfied` or `dissatisfied`."}
     end
   end
-
-  defp parse_assessment_verdict(_),
-    do: {:error, "Invalid verdict. Use `satisfied` or `dissatisfied`."}
 
   defp sample_assessment?(rate) do
     normalized = normalize_sample_rate(rate)

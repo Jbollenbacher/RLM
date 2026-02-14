@@ -87,8 +87,8 @@ defmodule RLM.Bench.Inspector do
     signals =
       []
       |> add_signal(Map.get(result, :status) == :error, :task_error)
-      |> add_signal(Map.get(metrics, :dispatch_missing, 0) > 0, :dispatch_assessment_missing)
-      |> add_signal(Map.get(metrics, :subagent_missing, 0) > 0, :subagent_assessment_missing)
+      |> add_signal(Map.get(metrics, :dispatch_missing, 0) > 0, :dispatch_survey_missing)
+      |> add_signal(Map.get(metrics, :subagent_missing, 0) > 0, :subagent_survey_missing)
       |> add_signal(Map.get(metrics, :dispatch_dissatisfied, 0) > 0, :dispatch_dissatisfied)
       |> add_signal(Map.get(metrics, :subagent_dissatisfied, 0) > 0, :subagent_dissatisfied)
       |> add_signal(Regex.match?(~r/no code block found/i, log_body), :no_code_block)
@@ -164,10 +164,10 @@ defmodule RLM.Bench.Inspector do
   defp recommendation_for(:timeout),
     do: "Encourage smaller subagent chunk sizes and bounded delegation fan-out."
 
-  defp recommendation_for(:dispatch_assessment_missing),
+  defp recommendation_for(:dispatch_survey_missing),
     do: "Reinforce final-commit pattern that always includes required assess_dispatch call."
 
-  defp recommendation_for(:subagent_assessment_missing),
+  defp recommendation_for(:subagent_survey_missing),
     do: "Reinforce recording assess_lm_query for sampled terminal subagents before final_answer."
 
   defp recommendation_for(:dispatch_dissatisfied),

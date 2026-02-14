@@ -26,13 +26,13 @@ defmodule RLM.Loop.SubagentReturn do
         completion_note =
           if Map.get(update, :completion_update), do: "completion update", else: nil
 
-        assessment_note =
+        survey_note =
           cond do
             Map.get(update, :assessment_required) and not Map.get(update, :assessment_recorded) ->
-              "assessment required: call assess_lm_query(\"#{id}\", \"satisfied\"|\"dissatisfied\", reason=\"...\")"
+              "survey required: call answer_child_survey(\"#{id}\", \"subagent_usefulness\", \"satisfied\"|\"dissatisfied\", reason=\"...\") (or assess_lm_query for compatibility)"
 
             Map.get(update, :assessment_update) ->
-              "assessment reminder: update now requires assessment after polling"
+              "survey reminder: this update now requires a subagent_usefulness response after polling"
 
             true ->
               nil
@@ -44,7 +44,7 @@ defmodule RLM.Loop.SubagentReturn do
           "preview:",
           preview,
           completion_note,
-          assessment_note
+          survey_note
         ]
         |> Enum.reject(&is_nil/1)
         |> Enum.join("\n")

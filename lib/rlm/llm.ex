@@ -110,7 +110,7 @@ defmodule RLM.LLM do
     code_like_count =
       Enum.count(lines, fn line ->
         Regex.match?(
-          ~r/^\s*(final_answer\s*=|assess_dispatch\(|assess_lm_query\(|(?:await_|poll_|cancel_)?lm_query\(|[A-Za-z_]\w*\s*=|for\s+\w+\s+in\s+.*:|if\s+.*:|while\s+.*:|def\s+\w+\(|import\s+\w+)/,
+          ~r/^\s*(final_answer\s*=|assess_dispatch\(|assess_lm_query\(|answer_(?:child_)?survey\(|pending_surveys\(|(?:await_|poll_|cancel_)?lm_query\(|[A-Za-z_]\w*\s*=|for\s+\w+\s+in\s+.*:|if\s+.*:|while\s+.*:|def\s+\w+\(|import\s+\w+)/,
           line
         )
       end)
@@ -119,6 +119,8 @@ defmodule RLM.LLM do
       String.contains?(text, "final_answer =") or
         String.contains?(text, "assess_dispatch(") or
         String.contains?(text, "assess_lm_query(") or
+        String.contains?(text, "answer_survey(") or
+        String.contains?(text, "answer_child_survey(") or
         String.contains?(text, "lm_query(")
 
     (has_agent_primitive? and code_like_count >= 1) or code_like_count >= 2

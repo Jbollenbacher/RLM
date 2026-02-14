@@ -16,10 +16,9 @@ defmodule RLM.Observability.Telemetry do
     [:rlm, :eval, :stop],
     [:rlm, :compaction],
     [:rlm, :lm_query],
-    [:rlm, :subagent_assessment],
-    [:rlm, :subagent_assessment, :missing],
-    [:rlm, :dispatch_assessment],
-    [:rlm, :dispatch_assessment, :missing]
+    [:rlm, :survey, :requested],
+    [:rlm, :survey, :answered],
+    [:rlm, :survey, :missing]
   ]
 
   def attach do
@@ -39,7 +38,7 @@ defmodule RLM.Observability.Telemetry do
   end
 
   def handle_event([:rlm, :agent, :end], _measurements, metadata, _config) do
-    emit_missing_subagent_assessments(metadata.agent_id)
+    emit_missing_subagent_surveys(metadata.agent_id)
 
     Tracker.end_agent(
       metadata.agent_id,
@@ -53,7 +52,7 @@ defmodule RLM.Observability.Telemetry do
 
   def handle_event([:rlm, :agent, :status], _measurements, metadata, _config) do
     if metadata.status in [:done, :error] do
-      emit_missing_subagent_assessments(metadata.agent_id)
+      emit_missing_subagent_surveys(metadata.agent_id)
     end
 
     Tracker.set_agent_status(
@@ -83,20 +82,16 @@ defmodule RLM.Observability.Telemetry do
     record_metadata(metadata, :lm_query)
   end
 
-  def handle_event([:rlm, :subagent_assessment], _measurements, metadata, _config) do
-    record_metadata(metadata, :subagent_assessment)
+  def handle_event([:rlm, :survey, :requested], _measurements, metadata, _config) do
+    record_metadata(metadata, :survey_requested)
   end
 
-  def handle_event([:rlm, :subagent_assessment, :missing], _measurements, metadata, _config) do
-    record_metadata(metadata, :subagent_assessment_missing)
+  def handle_event([:rlm, :survey, :answered], _measurements, metadata, _config) do
+    record_metadata(metadata, :survey_answered)
   end
 
-  def handle_event([:rlm, :dispatch_assessment], _measurements, metadata, _config) do
-    record_metadata(metadata, :dispatch_assessment)
-  end
-
-  def handle_event([:rlm, :dispatch_assessment, :missing], _measurements, metadata, _config) do
-    record_metadata(metadata, :dispatch_assessment_missing)
+  def handle_event([:rlm, :survey, :missing], _measurements, metadata, _config) do
+    record_metadata(metadata, :survey_missing)
   end
 
   def handle_event(_event, _measurements, _metadata, _config), do: :ok
@@ -120,10 +115,10 @@ defmodule RLM.Observability.Telemetry do
     Tracker.record_event(metadata.agent_id, type, Map.drop(metadata, [:agent_id]))
   end
 
-  defp emit_missing_subagent_assessments(agent_id) do
+  defp emit_missing_subagent_surveys(agent_id) do
     RLM.Subagent.Broker.drain_pending_assessments(agent_id)
     |> Enum.each(fn pending ->
-      RLM.Observability.subagent_assessment_missing(
+      RLM.Observability.subagent_usefulness_missing(
         agent_id,
         pending.child_agent_id,
         pending.status

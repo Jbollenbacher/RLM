@@ -69,5 +69,12 @@ defmodule RLM.PromptTest do
       assert output =~ "Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`"
       assert output =~ "Do not set `final_answer` again"
     end
+
+    test "generic survey check-in nudge includes answer_survey guidance" do
+      output = RLM.Prompt.survey_checkin_nudge(["dispatch_quality"])
+
+      assert output =~ "answer_survey(survey_id, response, reason=\"...\")"
+      assert output =~ "Pending survey_id values: dispatch_quality"
+    end
   end
 end

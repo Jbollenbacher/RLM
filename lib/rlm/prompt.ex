@@ -44,6 +44,16 @@ defmodule RLM.Prompt do
   Do not set `final_answer` again.
   Do not redo prior work.
   """
+  @survey_checkin_nudge_prefix """
+  [REPL][AGENT]
+  [Required surveys are pending before finalization.
+  Your final answer has been staged and will be returned automatically.
+  In this turn, respond with exactly one Python code block and only answer pending surveys with:
+  `answer_survey(survey_id, response, reason="...")`.
+  Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
+  Do not set `final_answer` again.
+  Do not redo prior work.
+  """
 
   @default_system_prompt_path Path.join(:code.priv_dir(:rlm), "system_prompt.md")
 
@@ -131,6 +141,19 @@ defmodule RLM.Prompt do
 
     @subagent_assessment_checkin_nudge_prefix <>
       "\nPending child_agent_id values: " <>
+      if(pending == "", do: "(none captured)", else: pending) <> "]"
+  end
+
+  @spec survey_checkin_nudge([String.t()]) :: String.t()
+  def survey_checkin_nudge(survey_ids) when is_list(survey_ids) do
+    pending =
+      survey_ids
+      |> Enum.map(&to_string/1)
+      |> Enum.uniq()
+      |> Enum.join(", ")
+
+    @survey_checkin_nudge_prefix <>
+      "\nPending survey_id values: " <>
       if(pending == "", do: "(none captured)", else: pending) <> "]"
   end
 

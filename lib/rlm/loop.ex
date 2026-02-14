@@ -177,7 +177,7 @@ defmodule RLM.Loop do
          iteration_started_at
        ) do
     parent_agent_id = Keyword.get(bindings, :parent_agent_id)
-    dispatch_assessment = Keyword.get(bindings, :dispatch_assessment)
+    dispatch_assessment = Finalization.dispatch_assessment(bindings)
     dispatch_assessment_required = Finalization.dispatch_assessment_required?(bindings)
 
     cond do
@@ -198,6 +198,20 @@ defmodule RLM.Loop do
 
       Finalization.pending_subagent_finalization?(bindings) ->
         bindings = Finalization.continue_pending_subagent(bindings, depth, iteration)
+
+        continue_iteration(
+          history,
+          bindings,
+          model,
+          config,
+          depth,
+          iteration,
+          agent_id,
+          iteration_started_at
+        )
+
+      Finalization.pending_required_survey_finalization?(bindings) ->
+        bindings = Finalization.continue_pending_required_surveys(bindings, depth, iteration)
 
         continue_iteration(
           history,
@@ -257,7 +271,7 @@ defmodule RLM.Loop do
             bindings =
               bindings
               |> Keyword.put(:final_answer, nil)
-              |> Keyword.put(:dispatch_assessment, nil)
+              |> Finalization.clear_dispatch_assessment()
 
             continue_iteration(
               history,
@@ -282,7 +296,7 @@ defmodule RLM.Loop do
                 history ++
                   [%{role: :user, content: RLM.Prompt.invalid_dispatch_assessment_nudge()}]
 
-              bindings = Keyword.put(bindings, :dispatch_assessment, nil)
+              bindings = Finalization.clear_dispatch_assessment(bindings)
 
               continue_iteration(
                 history,
@@ -389,20 +403,41 @@ defmodule RLM.Loop do
           )
 
         :no_stage ->
-          if final_status == :ok do
-            Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
-          end
+          case Finalization.maybe_stage_required_surveys(bindings, pending, depth, iteration) do
+            {:stage, bindings, survey_ids} ->
+              history =
+                history ++ [%{role: :user, content: RLM.Prompt.survey_checkin_nudge(survey_ids)}]
 
-          finish_iteration(
-            history,
-            bindings,
-            config,
-            agent_id,
-            iteration,
-            iteration_started_at,
-            final_status,
-            normalize_final_result(final_status, payload)
-          )
+              continue_iteration(
+                history,
+                bindings,
+                model,
+                config,
+                depth,
+                iteration,
+                agent_id,
+                iteration_started_at,
+                :error
+              )
+
+            :no_stage ->
+              if final_status == :ok do
+                Logger.info(
+                  "[RLM] depth=#{depth} completed with answer at iteration=#{iteration}"
+                )
+              end
+
+              finish_iteration(
+                history,
+                bindings,
+                config,
+                agent_id,
+                iteration,
+                iteration_started_at,
+                final_status,
+                normalize_final_result(final_status, payload)
+              )
+          end
       end
     end
   end

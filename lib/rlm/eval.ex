@@ -85,16 +85,32 @@ defmodule RLM.Eval do
               |> Codec.decode_term()
               |> Codec.normalize_final_answer()
 
-            dispatch_assessment =
+            survey_answers =
               python_globals
-              |> Map.get("_rlm_dispatch_assessment")
+              |> Map.get("_rlm_survey_answers")
               |> Codec.decode_term()
-              |> Codec.normalize_dispatch_assessment()
+              |> Codec.normalize_survey_answers()
+
+            survey_state =
+              bindings
+              |> Keyword.get(:survey_state, RLM.Survey.init_state())
+              |> RLM.Survey.merge_answers(survey_answers)
+
+            dispatch_assessment =
+              RLM.Survey.dispatch_assessment(survey_state)
+
+            RLM.Observability.local_survey_answers(
+              agent_id,
+              Keyword.get(bindings, :parent_agent_id),
+              Keyword.get(bindings, :dispatch_assessment_required, false) == true,
+              survey_answers
+            )
 
             new_bindings =
               bindings
               |> Keyword.put(:python_globals, prune_internal_globals(python_globals))
               |> Keyword.put(:final_answer, final_answer)
+              |> Keyword.put(:survey_state, survey_state)
               |> Keyword.put(:dispatch_assessment, dispatch_assessment)
 
             send(
@@ -163,7 +179,10 @@ defmodule RLM.Eval do
           :dispatch_assessment_checkin_deadline_iteration,
           :pending_subagent_final_answer,
           :pending_subagent_assessment_child_ids,
-          :subagent_assessment_checkin_deadline_iteration
+          :subagent_assessment_checkin_deadline_iteration,
+          :pending_required_survey_final_answer,
+          :pending_required_survey_ids,
+          :required_survey_checkin_deadline_iteration
         ]
       end)
       |> Enum.into(%{}, fn {key, value} -> {Atom.to_string(key), value} end)
@@ -202,7 +221,7 @@ defmodule RLM.Eval do
       "_rlm_stderr_buffer",
       "_rlm_bridge_dir",
       "_rlm_bridge_timeout_ms",
-      "_rlm_dispatch_assessment"
+      "_rlm_survey_answers"
     ])
   end
 

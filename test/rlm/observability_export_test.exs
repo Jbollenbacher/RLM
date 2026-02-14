@@ -46,6 +46,13 @@ defmodule RLM.ObservabilityExportTest do
     })
 
     Store.add_event(%{
+      agent_id: "parent",
+      type: :survey_requested,
+      payload: %{survey_id: "dispatch_quality", required: true},
+      ts: 1002
+    })
+
+    Store.add_event(%{
       agent_id: "child",
       type: :agent_end,
       payload: %{status: :done},
@@ -118,6 +125,7 @@ defmodule RLM.ObservabilityExportTest do
     assert dispatch.event.type == "lm_query"
     assert dispatch.child_agent.agent.id == "child"
     assert is_list(dispatch.child_agent.context_windows)
+    assert Enum.any?(root.timeline, &match?(%{event: %{type: "survey_requested"}}, &1))
 
     debug_export = Export.full_agent_logs(debug: true)
     [debug_root] = debug_export.agent_tree

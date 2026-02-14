@@ -171,17 +171,29 @@ function formatEventDetails(event) {
     if (payload.context_chars != null) lines.push(`context_chars: ${payload.context_chars}`);
     lines.push("request_tail (delta context):");
     lines.push(indentLines(formatRequestTail(payload), "  "));
-  } else if (eventType === "dispatch_assessment") {
+  } else if (eventType === "survey_requested") {
     lines.push("");
-    lines.push("Dispatch Quality Assessment");
+    lines.push("Survey Requested");
+    if (payload.survey_id != null) lines.push(`survey_id: ${payload.survey_id}`);
     if (payload.child_agent_id != null) lines.push(`child_agent_id: ${payload.child_agent_id}`);
-    if (payload.verdict != null) lines.push(`verdict: ${payload.verdict}`);
+    if (payload.scope != null) lines.push(`scope: ${payload.scope}`);
+    if (payload.required != null) lines.push(`required: ${payload.required}`);
+    if (payload.question != null) lines.push(`question: ${payload.question}`);
+  } else if (eventType === "survey_answered") {
+    lines.push("");
+    lines.push("Survey Answered");
+    if (payload.survey_id != null) lines.push(`survey_id: ${payload.survey_id}`);
+    if (payload.child_agent_id != null) lines.push(`child_agent_id: ${payload.child_agent_id}`);
+    if (payload.scope != null) lines.push(`scope: ${payload.scope}`);
+    if (payload.response != null) lines.push(`response: ${payload.response}`);
     if (payload.reason != null) lines.push(`reason: ${payload.reason}`);
-  } else if (eventType === "dispatch_assessment_missing") {
+  } else if (eventType === "survey_missing") {
     lines.push("");
-    lines.push("Dispatch Quality Assessment Missing");
+    lines.push("Survey Missing");
+    if (payload.survey_id != null) lines.push(`survey_id: ${payload.survey_id}`);
     if (payload.child_agent_id != null) lines.push(`child_agent_id: ${payload.child_agent_id}`);
-    if (payload.status != null) lines.push(`child_status: ${payload.status}`);
+    if (payload.scope != null) lines.push(`scope: ${payload.scope}`);
+    if (payload.status != null) lines.push(`status: ${payload.status}`);
   }
 
   lines.push("");
@@ -329,4 +341,3 @@ async function pollEvents() {
     }
   }
 }
-

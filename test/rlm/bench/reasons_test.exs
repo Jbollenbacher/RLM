@@ -16,7 +16,7 @@ defmodule RLM.Bench.ReasonsTest do
       Reasons.summarize([
         "Dispatch unclear",
         "Not enough context",
-        "assessment missing (status=ok)",
+        "survey missing (status=ok)",
         "timed out"
       ])
 

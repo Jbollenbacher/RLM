@@ -33,7 +33,7 @@ defmodule RLM.Bench.Reasons do
         :wrong_or_incomplete_output
 
       Regex.match?(
-        ~r/format|contract|final_answer|assessment|invalid|schema|parse|code block/,
+        ~r/format|contract|final_answer|assessment|survey|invalid|schema|parse|code block/,
         normalized
       ) ->
         :format_or_contract_issue
