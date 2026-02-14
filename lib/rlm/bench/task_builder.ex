@@ -146,8 +146,9 @@ defmodule RLM.Bench.TaskBuilder do
     |> Enum.zip(families_stream)
     |> Enum.zip(segments_stream)
     |> Enum.map(fn {{task_index, family}, doc} ->
-      segment_a = pick_segment(doc.segments, task_index)
-      segment_b = pick_segment(doc.segments, task_index + 1)
+      segment_index = task_index - 1
+      segment_a = pick_segment(doc.segments, segment_index)
+      segment_b = pick_segment(doc.segments, segment_index + 1)
 
       task_id =
         ["v1", doc.id, family, String.pad_leading(Integer.to_string(task_index), 4, "0")]

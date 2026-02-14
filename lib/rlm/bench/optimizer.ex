@@ -48,6 +48,7 @@ defmodule RLM.Bench.Optimizer do
       final_state =
         Enum.reduce(1..cycles, state, fn cycle, acc ->
           run_cycle(
+            session_id,
             cycle,
             acc,
             tasks_path,
@@ -90,6 +91,7 @@ defmodule RLM.Bench.Optimizer do
   end
 
   defp run_cycle(
+         session_id,
          cycle,
          state,
          tasks_path,
@@ -117,7 +119,7 @@ defmodule RLM.Bench.Optimizer do
         sample_rate: sample_rate,
         failure_tail_lines: failure_tail_lines,
         export_debug: true,
-        run_id: "cycle#{cycle}_a"
+        run_id: run_id_for_cycle(session_id, cycle, :a)
       )
 
     inspection =
@@ -153,7 +155,7 @@ defmodule RLM.Bench.Optimizer do
         sample_rate: sample_rate,
         failure_tail_lines: failure_tail_lines,
         export_debug: true,
-        run_id: "cycle#{cycle}_b"
+        run_id: run_id_for_cycle(session_id, cycle, :b)
       )
 
     report =
@@ -197,6 +199,12 @@ defmodule RLM.Bench.Optimizer do
         last_report: report,
         cycle_reports: [cycle_record | state.cycle_reports]
     }
+  end
+
+  @doc false
+  def run_id_for_cycle(session_id, cycle, variant)
+      when is_binary(session_id) and is_integer(cycle) and cycle > 0 do
+    "#{session_id}_cycle#{cycle}_#{normalize_variant(variant)}"
   end
 
   defp mutate_prompt(prompt, run_summary, cycle, inspection) do
@@ -321,4 +329,8 @@ defmodule RLM.Bench.Optimizer do
         default
     end
   end
+
+  defp normalize_variant(:a), do: "a"
+  defp normalize_variant(:b), do: "b"
+  defp normalize_variant(value), do: value |> to_string() |> String.trim()
 end

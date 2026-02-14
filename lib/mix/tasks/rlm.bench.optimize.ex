@@ -8,9 +8,7 @@ defmodule Mix.Tasks.Rlm.Bench.Optimize do
 
   @impl true
   def run(args) do
-    Mix.Task.run("app.start")
-
-    {opts, _positional, _invalid} =
+    {opts, _positional, invalid} =
       OptionParser.parse(args,
         strict: [
           tasks: :string,
@@ -24,6 +22,9 @@ defmodule Mix.Tasks.Rlm.Bench.Optimize do
           no_inspect_logs: :boolean
         ]
       )
+
+    raise_on_invalid_flags!(invalid)
+    Mix.Task.run("app.start")
 
     tasks_path = Keyword.get(opts, :tasks, Paths.default_pool_path())
 
@@ -66,4 +67,18 @@ defmodule Mix.Tasks.Rlm.Bench.Optimize do
         Mix.raise(inspect(reason))
     end
   end
+
+  defp raise_on_invalid_flags!([]), do: :ok
+
+  defp raise_on_invalid_flags!(invalid) do
+    invalid_list =
+      invalid
+      |> Enum.map(&format_invalid_option/1)
+      |> Enum.join(", ")
+
+    Mix.raise("Unknown or invalid options: #{invalid_list}")
+  end
+
+  defp format_invalid_option({flag, _value}), do: to_string(flag)
+  defp format_invalid_option(flag), do: to_string(flag)
 end

@@ -7,10 +7,12 @@ defmodule Mix.Tasks.Rlm.Bench.Logs do
 
   @impl true
   def run(args) do
-    {opts, _positional, _invalid} =
+    {opts, _positional, invalid} =
       OptionParser.parse(args,
         strict: [run_id: :string, task: :string, tail: :integer]
       )
+
+    raise_on_invalid_flags!(invalid)
 
     run_id = Keyword.get(opts, :run_id) || Mix.raise("--run-id is required")
     task_id = Keyword.get(opts, :task) || Mix.raise("--task is required")
@@ -25,4 +27,18 @@ defmodule Mix.Tasks.Rlm.Bench.Logs do
         Mix.raise(reason)
     end
   end
+
+  defp raise_on_invalid_flags!([]), do: :ok
+
+  defp raise_on_invalid_flags!(invalid) do
+    invalid_list =
+      invalid
+      |> Enum.map(&format_invalid_option/1)
+      |> Enum.join(", ")
+
+    Mix.raise("Unknown or invalid options: #{invalid_list}")
+  end
+
+  defp format_invalid_option({flag, _value}), do: to_string(flag)
+  defp format_invalid_option(flag), do: to_string(flag)
 end
