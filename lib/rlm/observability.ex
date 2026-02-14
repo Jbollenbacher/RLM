@@ -128,16 +128,6 @@ defmodule RLM.Observability do
 
   @spec dispatch_assessment(String.t(), String.t(), atom(), String.t()) :: :ok
   def dispatch_assessment(parent_agent_id, child_agent_id, verdict, reason) do
-    payload = %{
-      agent_id: parent_agent_id,
-      child_agent_id: child_agent_id,
-      verdict: verdict,
-      reason: reason
-    }
-
-    emit([:rlm, :dispatch_assessment], %{}, payload)
-
-    # Mirror onto the child stream so child-scoped views include supervisor assessment outcomes.
     if is_binary(child_agent_id) and child_agent_id != "" do
       emit([:rlm, :dispatch_assessment], %{}, %{
         agent_id: child_agent_id,
@@ -151,14 +141,6 @@ defmodule RLM.Observability do
 
   @spec dispatch_assessment_missing(String.t(), String.t(), atom()) :: :ok
   def dispatch_assessment_missing(parent_agent_id, child_agent_id, status) do
-    payload = %{
-      agent_id: parent_agent_id,
-      child_agent_id: child_agent_id,
-      status: status
-    }
-
-    emit([:rlm, :dispatch_assessment, :missing], %{}, payload)
-
     if is_binary(child_agent_id) and child_agent_id != "" do
       emit([:rlm, :dispatch_assessment, :missing], %{}, %{
         agent_id: child_agent_id,

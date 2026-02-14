@@ -19,8 +19,13 @@ defmodule RLM.RecursionTest do
       result =
         RLM.run(
           context,
-          "Summarize this document. It contains multiple sections. Use lm_query to delegate summarization of chunks.",
-          config: RLM.Config.load(max_iterations: 25, max_depth: 3)
+          "Summarize this document. It contains multiple sections. Use lm_query to delegate chunk summarization, await the delegated results, synthesize them, and set final_answer to the final summary string in that same step.",
+          config:
+            RLM.Config.load(
+              max_iterations: 40,
+              max_depth: 3,
+              subagent_assessment_sample_rate: 0.0
+            )
         )
 
       assert {:ok, answer} = result

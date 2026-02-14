@@ -46,7 +46,7 @@ defmodule RLM.DispatchAssessmentContractTest do
                agent_id: child_id
              )
 
-    events = events_for(parent_id)
+    events = events_for(child_id)
 
     event =
       Enum.find(events, fn evt ->
@@ -55,13 +55,10 @@ defmodule RLM.DispatchAssessmentContractTest do
 
     assert event
     assert get_in(event, [:payload, :verdict]) == :satisfied
+    assert get_in(event, [:payload, :parent_agent_id]) == parent_id
 
-    child_events = events_for(child_id)
-
-    assert Enum.any?(child_events, fn evt ->
-             evt.type == :dispatch_assessment and
-               get_in(evt, [:payload, :parent_agent_id]) == parent_id
-           end)
+    parent_events = events_for(parent_id)
+    refute Enum.any?(parent_events, fn evt -> evt.type == :dispatch_assessment end)
   end
 
   test "assess_dispatch is not processed when no final_answer is committed" do
@@ -88,6 +85,12 @@ defmodule RLM.DispatchAssessmentContractTest do
              evt.type in [:dispatch_assessment, :dispatch_assessment_missing] and
                get_in(evt, [:payload, :child_agent_id]) == child_id
            end)
+
+    child_events = events_for(child_id)
+
+    refute Enum.any?(child_events, fn evt ->
+             evt.type in [:dispatch_assessment, :dispatch_assessment_missing]
+           end)
   end
 
   test "sampled subagent finalization uses one-turn check-in and records dispatch assessment" do
@@ -107,11 +110,12 @@ defmodule RLM.DispatchAssessmentContractTest do
                agent_id: child_id
              )
 
-    events = events_for(parent_id)
+    events = events_for(child_id)
 
     assert Enum.any?(events, fn evt ->
              evt.type == :dispatch_assessment and
                get_in(evt, [:payload, :child_agent_id]) == child_id and
+               get_in(evt, [:payload, :parent_agent_id]) == parent_id and
                get_in(evt, [:payload, :verdict]) == :satisfied
            end)
 
@@ -119,6 +123,9 @@ defmodule RLM.DispatchAssessmentContractTest do
              evt.type == :dispatch_assessment_missing and
                get_in(evt, [:payload, :child_agent_id]) == child_id
            end)
+
+    parent_events = events_for(parent_id)
+    refute Enum.any?(parent_events, fn evt -> evt.type in [:dispatch_assessment, :dispatch_assessment_missing] end)
   end
 
   test "sampled subagent finalization falls back after one check-in turn when assessment remains missing" do
@@ -138,7 +145,7 @@ defmodule RLM.DispatchAssessmentContractTest do
                agent_id: child_id
              )
 
-    events = events_for(parent_id)
+    events = events_for(child_id)
 
     assert Enum.any?(events, fn evt ->
              evt.type == :dispatch_assessment_missing and
@@ -149,6 +156,9 @@ defmodule RLM.DispatchAssessmentContractTest do
              evt.type == :dispatch_assessment and
                get_in(evt, [:payload, :child_agent_id]) == child_id
            end)
+
+    parent_events = events_for(parent_id)
+    refute Enum.any?(parent_events, fn evt -> evt.type in [:dispatch_assessment, :dispatch_assessment_missing] end)
   end
 
   test "unsampled subagent finalization remains unchanged without check-in gating" do
@@ -173,6 +183,12 @@ defmodule RLM.DispatchAssessmentContractTest do
     refute Enum.any?(events, fn evt ->
              evt.type in [:dispatch_assessment, :dispatch_assessment_missing] and
                get_in(evt, [:payload, :child_agent_id]) == child_id
+           end)
+
+    child_events = events_for(child_id)
+
+    refute Enum.any?(child_events, fn evt ->
+             evt.type in [:dispatch_assessment, :dispatch_assessment_missing]
            end)
   end
 

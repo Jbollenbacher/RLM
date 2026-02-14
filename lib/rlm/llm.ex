@@ -30,8 +30,7 @@ defmodule RLM.LLM do
 
       body = %{
         "model" => model,
-        "messages" => Enum.map(messages, &to_api_map/1),
-        "temperature" => 0.2
+        "messages" => Enum.map(messages, &to_api_map/1)
       }
 
       case Req.post(req, url: "/chat/completions", json: body) do
