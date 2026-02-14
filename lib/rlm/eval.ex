@@ -1,5 +1,4 @@
 defmodule RLM.Eval do
-  @python_prelude File.read!(Path.join(:code.priv_dir(:rlm), "python_prelude.py"))
   @default_eval_timeout_ms 30_000
 
   alias RLM.Eval.{Bridge, Codec}
@@ -86,10 +85,17 @@ defmodule RLM.Eval do
               |> Codec.decode_term()
               |> Codec.normalize_final_answer()
 
+            dispatch_assessment =
+              python_globals
+              |> Map.get("_rlm_dispatch_assessment")
+              |> Codec.decode_term()
+              |> Codec.normalize_dispatch_assessment()
+
             new_bindings =
               bindings
               |> Keyword.put(:python_globals, prune_internal_globals(python_globals))
               |> Keyword.put(:final_answer, final_answer)
+              |> Keyword.put(:dispatch_assessment, dispatch_assessment)
 
             send(
               caller,
@@ -149,7 +155,17 @@ defmodule RLM.Eval do
 
     current =
       bindings
-      |> Enum.reject(fn {key, _value} -> key in [:lm_query, :python_globals] end)
+      |> Enum.reject(fn {key, _value} ->
+        key in [
+          :lm_query,
+          :python_globals,
+          :pending_final_answer,
+          :dispatch_assessment_checkin_deadline_iteration,
+          :pending_subagent_final_answer,
+          :pending_subagent_assessment_child_ids,
+          :subagent_assessment_checkin_deadline_iteration
+        ]
+      end)
       |> Enum.into(%{}, fn {key, value} -> {Atom.to_string(key), value} end)
 
     bridge_globals = %{
@@ -185,7 +201,8 @@ defmodule RLM.Eval do
       "_rlm_stdout_buffer",
       "_rlm_stderr_buffer",
       "_rlm_bridge_dir",
-      "_rlm_bridge_timeout_ms"
+      "_rlm_bridge_timeout_ms",
+      "_rlm_dispatch_assessment"
     ])
   end
 
@@ -219,5 +236,7 @@ defmodule RLM.Eval do
   defp clamp_sample_rate(rate) when rate > 1.0, do: 1.0
   defp clamp_sample_rate(rate), do: rate
 
-  defp python_prelude, do: @python_prelude
+  defp python_prelude do
+    File.read!(Path.join(:code.priv_dir(:rlm), "python_prelude.py"))
+  end
 end

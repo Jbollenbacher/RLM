@@ -9,6 +9,15 @@ def _rlm_to_text(value):
         return value.decode("utf-8", errors="replace")
     return value
 
+def _rlm_truthy(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
 class _RLMHelperError(RuntimeError):
     pass
 
@@ -238,6 +247,7 @@ def list_bindings():
         "ok", "fail",
         "list_bindings",
         "lm_query", "poll_lm_query", "await_lm_query", "cancel_lm_query", "assess_lm_query",
+        "assess_dispatch",
         "print"
     }
     out = []
@@ -410,3 +420,30 @@ def assess_lm_query(child_agent_id, verdict, reason=""):
         (response.get("status", "error"), response.get("payload")),
         "assess_lm_query"
     )
+
+def assess_dispatch(verdict, reason=""):
+    parent_agent_id = _rlm_to_text(globals().get("parent_agent_id"))
+    if not parent_agent_id:
+        raise _RLMHelperError(
+            "assess_dispatch is only available for subagents with a parent agent"
+        )
+
+    required = _rlm_truthy(globals().get("dispatch_assessment_required", False))
+    if not required:
+        return {
+            "status": "ignored",
+            "reason": "dispatch assessment not requested for this subagent"
+        }
+
+    verdict_text = str(_rlm_to_text(verdict)).strip().lower()
+    if verdict_text not in ("satisfied", "dissatisfied"):
+        raise _RLMHelperError(
+            "assess_dispatch verdict must be 'satisfied' or 'dissatisfied'"
+        )
+
+    assessment = {
+        "verdict": verdict_text,
+        "reason": _rlm_to_text(reason)
+    }
+    globals()["_rlm_dispatch_assessment"] = assessment
+    return assessment

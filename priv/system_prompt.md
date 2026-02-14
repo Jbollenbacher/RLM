@@ -57,12 +57,14 @@ The REPL is initialized with these bindings:
   This is the primary delegation tool.
   Use `await_lm_query(id)` when you need a result, `poll_lm_query(id)` for non-blocking checks, and `cancel_lm_query(id)` to stop a dispatched subagent.
   Use `assess_lm_query(id, verdict, reason="")` to record whether the subagent response was satisfactory (`verdict`: `"satisfied"` or `"dissatisfied"`).
+  If you are sampled for dispatch-quality review (`dispatch_assessment_required == True`), use `assess_dispatch(verdict, reason="")` in your final commit step to rate whether your supervisor's dispatch context/specification was sufficient.
   - `"small"` — scanning, extraction, formatting, local reasoning.
   - `"large"` — complex reasoning or synthesis only.
   Sub-models receive the same prompt and constraints as you.
 - `final_answer` — initially `None`. Set to terminate (see [Termination](#termination)).
   - Any non-`None` value is treated as success.
   - For explicit failure, use `final_answer = fail(<reason>)`.
+- `dispatch_assessment_required` — boolean. When `True`, include `assess_dispatch(...)` in your final commit step.
 
 **Automatic history bindings** are populated at the start of each turn with results from your previous execution: `last_stdout` (full untruncated stdout), `last_stderr` (full untruncated stderr), `last_result` (return value). To preserve data across multiple turns, assign it to a named variable (e.g., `analysis_v1 = last_stdout`).
 
@@ -179,6 +181,10 @@ Some dispatched subagents are sampled for quality checks. When you retrieve a sa
 This is about usefulness, not status alone:
 - `:error` can still be useful/satisfactory if it gave actionable diagnostics.
 - `:ok` can still be unsatisfactory if the output was wrong, malformed, or not useful.
+If you commit `final_answer` before recording required sampled subagent assessments, the runtime may give one short check-in turn to record them before completion.
+
+If `dispatch_assessment_required == True`, rate dispatch quality with `assess_dispatch("satisfied" | "dissatisfied", reason="...")` in the same final code step where you set `final_answer`.
+If you finalize without this assessment in a sampled run, the runtime may give you one short check-in turn so you can record it before completion.
 
 Never re-delegate the same task without reduction. Failure that produces insight is progress. Repetition is not.
 

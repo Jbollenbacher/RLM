@@ -45,6 +45,7 @@ defmodule RLM.Subagent.Broker do
           assessment_sampled: boolean(),
           polled: boolean(),
           assessment: map() | nil,
+          assessment_missing_emitted: boolean(),
           completion_notified: boolean(),
           assessment_prompt_pending: boolean()
         }
@@ -98,6 +99,11 @@ defmodule RLM.Subagent.Broker do
   @spec pending_assessments(parent_id()) :: [map()]
   def pending_assessments(parent_id) when is_binary(parent_id) do
     call_if_running(fn -> GenServer.call(@name, {:pending_assessments, parent_id}) end, [])
+  end
+
+  @spec drain_pending_assessments(parent_id()) :: [map()]
+  def drain_pending_assessments(parent_id) when is_binary(parent_id) do
+    call_if_running(fn -> GenServer.call(@name, {:drain_pending_assessments, parent_id}) end, [])
   end
 
   @spec drain_updates(parent_id()) :: [push_update()]
@@ -171,6 +177,7 @@ defmodule RLM.Subagent.Broker do
           assessment_sampled: assessment_sampled,
           polled: false,
           assessment: nil,
+          assessment_missing_emitted: false,
           completion_notified: false,
           assessment_prompt_pending: false
         }
@@ -263,6 +270,36 @@ defmodule RLM.Subagent.Broker do
     {:reply, pending, state}
   end
 
+  def handle_call({:drain_pending_assessments, parent_id}, _from, state) do
+    pending =
+      state.by_parent
+      |> Map.get(parent_id, MapSet.new())
+      |> MapSet.to_list()
+      |> Enum.map(fn child_id ->
+        key = {parent_id, child_id}
+        {key, Map.get(state.jobs, key)}
+      end)
+      |> Enum.reject(fn {_key, job} -> is_nil(job) end)
+      |> Enum.filter(fn {_key, job} ->
+        assessment_required?(job) and is_nil(job.assessment) and
+          not job.assessment_missing_emitted
+      end)
+
+    state =
+      Enum.reduce(pending, state, fn {key, job}, acc ->
+        now = System.system_time(:millisecond)
+        updated = %{job | assessment_missing_emitted: true, updated_at: now}
+        put_job(acc, key, updated)
+      end)
+
+    response =
+      Enum.map(pending, fn {{_parent_id, child_id}, job} ->
+        %{child_agent_id: child_id, status: job.status}
+      end)
+
+    {:reply, response, state}
+  end
+
   def handle_call({:drain_updates, parent_id}, _from, state) do
     child_ids =
       state.by_parent
@@ -297,14 +334,17 @@ defmodule RLM.Subagent.Broker do
                 updated_at: now
             }
 
-            {put_job(acc_state, key, updated_job), acc_updates ++ [update]}
+            {put_job(acc_state, key, updated_job), [update | acc_updates]}
           else
             {acc_state, acc_updates}
           end
         end
       end)
 
-    updates = Enum.sort_by(updates, &{Map.get(&1, :child_agent_id), Map.get(&1, :state)})
+    updates =
+      updates
+      |> Enum.reverse()
+      |> Enum.sort_by(&{Map.get(&1, :child_agent_id), Map.get(&1, :state)})
     {:reply, updates, state}
   end
 

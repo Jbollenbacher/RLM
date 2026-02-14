@@ -1,6 +1,8 @@
 defmodule RLM.ObservabilityAgentWatcherTest do
   use ExUnit.Case, async: false
 
+  import RLM.TestSupport, only: [assert_eventually: 1]
+
   alias RLM.Observability.AgentWatcher
   alias RLM.Observability.Store
   alias RLM.Observability.Tracker
@@ -51,15 +53,4 @@ defmodule RLM.ObservabilityAgentWatcherTest do
     assert %{status: :done} = Store.get_agent("agent_watch_2")
   end
 
-  defp assert_eventually(fun, attempts \\ 50)
-  defp assert_eventually(fun, 0), do: assert(fun.())
-
-  defp assert_eventually(fun, attempts) do
-    if fun.() do
-      :ok
-    else
-      Process.sleep(10)
-      assert_eventually(fun, attempts - 1)
-    end
-  end
 end

@@ -126,6 +126,49 @@ defmodule RLM.Observability do
     })
   end
 
+  @spec dispatch_assessment(String.t(), String.t(), atom(), String.t()) :: :ok
+  def dispatch_assessment(parent_agent_id, child_agent_id, verdict, reason) do
+    payload = %{
+      agent_id: parent_agent_id,
+      child_agent_id: child_agent_id,
+      verdict: verdict,
+      reason: reason
+    }
+
+    emit([:rlm, :dispatch_assessment], %{}, payload)
+
+    # Mirror onto the child stream so child-scoped views include supervisor assessment outcomes.
+    if is_binary(child_agent_id) and child_agent_id != "" do
+      emit([:rlm, :dispatch_assessment], %{}, %{
+        agent_id: child_agent_id,
+        child_agent_id: child_agent_id,
+        parent_agent_id: parent_agent_id,
+        verdict: verdict,
+        reason: reason
+      })
+    end
+  end
+
+  @spec dispatch_assessment_missing(String.t(), String.t(), atom()) :: :ok
+  def dispatch_assessment_missing(parent_agent_id, child_agent_id, status) do
+    payload = %{
+      agent_id: parent_agent_id,
+      child_agent_id: child_agent_id,
+      status: status
+    }
+
+    emit([:rlm, :dispatch_assessment, :missing], %{}, payload)
+
+    if is_binary(child_agent_id) and child_agent_id != "" do
+      emit([:rlm, :dispatch_assessment, :missing], %{}, %{
+        agent_id: child_agent_id,
+        child_agent_id: child_agent_id,
+        parent_agent_id: parent_agent_id,
+        status: status
+      })
+    end
+  end
+
   @spec snapshot_context(String.t(), non_neg_integer(), [map()], RLM.Config.t(), keyword()) :: :ok
   def snapshot_context(agent_id, iteration, history, config, opts \\ []) do
     if enabled?() do

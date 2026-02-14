@@ -3,48 +3,21 @@ defmodule RLM.MaxConcurrentAgentsTest do
 
   @moduletag timeout: 60_000
 
-  defmodule FakeLLMPlug do
-    use Plug.Router
-    import Plug.Conn
-
-    plug(:match)
-    plug(:dispatch)
-
-    post "/chat/completions" do
-      response = """
-      ```python
-      try:
-          job_id = lm_query("subagent task", model_size="small")
-          final_answer = await_lm_query(job_id, timeout_ms=5_000)
-      except Exception as exc:
-          final_answer = fail(str(exc))
-      ```
-      """
-
-      body = Jason.encode!(%{choices: [%{message: %{content: response}}]})
-
-      conn
-      |> put_resp_content_type("application/json")
-      |> send_resp(200, body)
-    end
-
-    match _ do
-      send_resp(conn, 404, "Not found")
-    end
-  end
+  import RLM.TestSupport,
+    only: [ensure_runtime_supervisors: 0, free_port: 0]
 
   test "lm_query returns max-concurrency error when limit is 1" do
-    unless Process.whereis(RLM.AgentLimiter) do
-      start_supervised!(RLM.AgentLimiter)
-    end
-
-    unless Process.whereis(RLM.Finch) do
-      start_supervised!({Finch, name: RLM.Finch})
-    end
+    ensure_runtime_supervisors()
 
     port = free_port()
 
-    start_supervised!({Bandit, plug: FakeLLMPlug, scheme: :http, port: port, ip: {127, 0, 0, 1}})
+    start_supervised!(
+      {Bandit,
+       plug: {RLM.TestSupport.LLMPlug, responder: fake_llm_responder()},
+       scheme: :http,
+       port: port,
+       ip: {127, 0, 0, 1}}
+    )
 
     config =
       RLM.Config.load(
@@ -61,10 +34,17 @@ defmodule RLM.MaxConcurrentAgentsTest do
     assert reason =~ "Max concurrent agents (1) reached"
   end
 
-  defp free_port do
-    {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false])
-    {:ok, port} = :inet.port(socket)
-    :gen_tcp.close(socket)
-    port
+  defp fake_llm_responder do
+    fn _raw_body ->
+      """
+      ```python
+      try:
+          job_id = lm_query("subagent task", model_size="small")
+          final_answer = await_lm_query(job_id, timeout_ms=5_000)
+      except Exception as exc:
+          final_answer = fail(str(exc))
+      ```
+      """
+    end
   end
 end

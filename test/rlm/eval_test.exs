@@ -176,4 +176,48 @@ except Exception as exc:
       assert stdout =~ "still running"
     end
   end
+
+  describe "dispatch assessment helper" do
+    test "captures dispatch assessment in bindings" do
+      {:ok, _stdout, _stderr, _result, bindings} =
+        RLM.Eval.eval(
+          ~s[
+assess_dispatch("satisfied", reason="clear dispatch")
+final_answer = "done"
+],
+          parent_agent_id: "agent_parent",
+          dispatch_assessment_required: true
+        )
+
+      assert Keyword.get(bindings, :dispatch_assessment) == %{
+               verdict: :satisfied,
+               reason: "clear dispatch"
+             }
+    end
+
+    test "errors when called without a parent agent" do
+      {:error, stdout, stderr, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+assess_dispatch("satisfied", reason="n/a")
+],
+          []
+        )
+
+      assert stdout <> stderr =~ "only available for subagents"
+    end
+
+    test "is a no-op when dispatch assessment is not required" do
+      {:ok, _stdout, _stderr, _result, bindings} =
+        RLM.Eval.eval(
+          ~s[
+result = assess_dispatch("satisfied", reason="optional")
+],
+          parent_agent_id: "agent_parent",
+          dispatch_assessment_required: false
+        )
+
+      assert Keyword.get(bindings, :dispatch_assessment) == nil
+    end
+  end
 end

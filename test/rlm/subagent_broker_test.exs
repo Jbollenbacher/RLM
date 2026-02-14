@@ -1,6 +1,8 @@
 defmodule RLM.SubagentBrokerTest do
   use ExUnit.Case
 
+  import RLM.TestSupport, only: [assert_eventually: 1]
+
   test "dispatch returns child id and job eventually completes" do
     parent_id = "parent_#{System.unique_integer([:positive, :monotonic])}"
 
@@ -204,16 +206,34 @@ defmodule RLM.SubagentBrokerTest do
            ] = RLM.Subagent.Broker.drain_updates(parent_id)
   end
 
-  defp assert_eventually(fun, attempts \\ 60)
+  test "drain_pending_assessments returns sampled missing assessments once" do
+    parent_id = "parent_#{System.unique_integer([:positive, :monotonic])}"
 
-  defp assert_eventually(fun, attempts) when attempts > 0 do
-    if fun.() do
-      :ok
-    else
-      Process.sleep(20)
-      assert_eventually(fun, attempts - 1)
+    lm_query_fn = fn _text, _opts ->
+      {:ok, "done"}
     end
+
+    assert {:ok, child_id} =
+             RLM.Subagent.Broker.dispatch(
+               parent_id,
+               "task",
+               [model_size: :small],
+               lm_query_fn,
+               timeout_ms: 1_000,
+               assessment_sampled: true
+             )
+
+    assert_eventually(fn ->
+      match?(
+        {:ok, %{state: :ok, assessment_required: true}},
+        RLM.Subagent.Broker.poll(parent_id, child_id)
+      )
+    end)
+
+    assert [%{child_agent_id: ^child_id, status: :ok}] =
+             RLM.Subagent.Broker.drain_pending_assessments(parent_id)
+
+    assert [] == RLM.Subagent.Broker.drain_pending_assessments(parent_id)
   end
 
-  defp assert_eventually(_fun, 0), do: flunk("condition did not become true in time")
 end

@@ -1,5 +1,6 @@
 defmodule RLM.Loop do
   require Logger
+  alias RLM.Loop.{Compaction, EvalFeedback, Finalization, SubagentReturn}
 
   @doc false
   def run_turn(history, bindings, model, config, depth, agent_id) do
@@ -7,108 +8,52 @@ defmodule RLM.Loop do
   end
 
   defp iterate(history, bindings, model, config, depth, iteration, agent_id) do
-    if iteration >= config.max_iterations do
-      {{:error, "Max iterations (#{config.max_iterations}) reached without final_answer"},
-       history, bindings}
-    else
-      Logger.info("[RLM] depth=#{depth} iteration=#{iteration}")
+    case Finalization.resolve_pending(bindings, depth, iteration, agent_id) do
+      {:halt, pending, bindings} ->
+        finish_staged_result(history, bindings, config, agent_id, iteration, pending)
 
-      {history, bindings} = maybe_compact(history, bindings, model, config, agent_id)
-      history = maybe_inject_subagent_return_messages(history, config, agent_id)
-
-      snapshot_iteration(agent_id, iteration, history, config, bindings)
-
-      iteration_started_at = RLM.Observability.iteration_start(agent_id, iteration)
-
-      case RLM.LLM.chat(history, model, config, agent_id: agent_id, iteration: iteration) do
-        {:ok, response} ->
-          handle_response(
-            response,
-            history,
-            bindings,
-            model,
-            config,
-            depth,
-            iteration,
-            agent_id,
-            iteration_started_at
-          )
-
-        {:error, reason} ->
-          RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
-
-          {{:error, "LLM call failed at depth=#{depth} iteration=#{iteration}: #{reason}"},
+      {:continue, bindings} ->
+        if iteration >= config.max_iterations and
+             not Finalization.pending_checkin_turn?(bindings, iteration) do
+          {{:error, "Max iterations (#{config.max_iterations}) reached without final_answer"},
            history, bindings}
-      end
+        else
+          Logger.info("[RLM] depth=#{depth} iteration=#{iteration}")
+
+          {history, bindings} = maybe_compact(history, bindings, model, config, agent_id)
+          history = SubagentReturn.maybe_inject(history, config, agent_id)
+
+          snapshot_iteration(agent_id, iteration, history, config, bindings)
+
+          iteration_started_at = RLM.Observability.iteration_start(agent_id, iteration)
+
+          case RLM.LLM.chat(history, model, config, agent_id: agent_id, iteration: iteration) do
+            {:ok, response} ->
+              handle_response(
+                response,
+                history,
+                bindings,
+                model,
+                config,
+                depth,
+                iteration,
+                agent_id,
+                iteration_started_at
+              )
+
+            {:error, reason} ->
+              RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
+
+              {{:error, "LLM call failed at depth=#{depth} iteration=#{iteration}: #{reason}"},
+               history, bindings}
+          end
+        end
     end
   end
 
   @doc false
   def maybe_compact(history, bindings, model, config, agent_id \\ nil) do
-    estimated_tokens = estimate_tokens(history)
-    threshold = trunc(context_window_tokens_for_model(config, model) * 0.8)
-
-    if estimated_tokens > threshold and length(history) > 1 do
-      [system_msg | rest] = history
-      serialized = serialize_history(rest)
-
-      existing = Keyword.get(bindings, :compacted_history, "")
-
-      combined =
-        if existing == "" do
-          serialized
-        else
-          existing <> "\n\n---\n\n" <> serialized
-        end
-
-      new_bindings = Keyword.put(bindings, :compacted_history, combined)
-
-      preview =
-        RLM.Truncate.truncate(combined,
-          head: config.truncation_head,
-          tail: config.truncation_tail
-        )
-
-      addendum = RLM.Prompt.compaction_addendum(preview)
-      new_history = [system_msg, %{role: :user, content: addendum}]
-
-      Logger.info(
-        "[RLM] Compacted history: #{estimated_tokens} tokens -> #{estimate_tokens(new_history)} tokens"
-      )
-
-      RLM.Observability.compaction(
-        agent_id,
-        estimated_tokens,
-        estimate_tokens(new_history),
-        String.length(preview)
-      )
-
-      {new_history, new_bindings}
-    else
-      {history, bindings}
-    end
-  end
-
-  defp estimate_tokens(history) do
-    total_chars =
-      Enum.reduce(history, 0, fn msg, acc ->
-        content = Map.get(msg, :content, "")
-        acc + String.length(to_string(content))
-      end)
-
-    div(total_chars, 4)
-  end
-
-  defp context_window_tokens_for_model(config, model) do
-    if config.model_large == config.model_small do
-      max(config.context_window_tokens_large, config.context_window_tokens_small)
-    else
-      cond do
-        model == config.model_large -> config.context_window_tokens_large
-        model == config.model_small -> config.context_window_tokens_small
-        true -> config.context_window_tokens_large
-      end
-    end
+    Compaction.maybe_compact(history, bindings, model, config, agent_id)
   end
 
   defp last_user_nudge?(history) do
@@ -118,80 +63,7 @@ defmodule RLM.Loop do
     end
   end
 
-  defp serialize_history(messages) do
-    Enum.map_join(messages, "\n\n---\n\n", fn msg ->
-      role = Map.get(msg, :role, "unknown")
-      content = Map.get(msg, :content, "")
-      "Role: #{role}\n#{to_string(content)}"
-    end)
-  end
-
   defp normalize_answer(term), do: RLM.Helpers.format_value(term)
-
-  defp maybe_inject_subagent_return_messages(history, _config, nil), do: history
-
-  defp maybe_inject_subagent_return_messages(history, config, agent_id) do
-    case RLM.Subagent.Broker.drain_updates(agent_id) do
-      [] ->
-        history
-
-      updates ->
-        message = subagent_return_message(updates, config)
-        history ++ [%{role: :user, content: message}]
-    end
-  end
-
-  defp subagent_return_message(updates, config) do
-    body =
-      updates
-      |> Enum.map_join("\n\n---\n\n", fn update ->
-        id = Map.get(update, :child_agent_id)
-        status = Map.get(update, :state)
-        preview = preview_subagent_payload(Map.get(update, :payload), config)
-
-        completion_note =
-          if Map.get(update, :completion_update), do: "completion update", else: nil
-
-        assessment_note =
-          cond do
-            Map.get(update, :assessment_required) and not Map.get(update, :assessment_recorded) ->
-              "assessment required: call assess_lm_query(\"#{id}\", \"satisfied\"|\"dissatisfied\", reason=\"...\")"
-
-            Map.get(update, :assessment_update) ->
-              "assessment reminder: update now requires assessment after polling"
-
-            true ->
-              nil
-          end
-
-        [
-          "child_agent_id: #{id}",
-          "status: #{status}",
-          "preview:",
-          preview,
-          completion_note,
-          assessment_note
-        ]
-        |> Enum.reject(&is_nil/1)
-        |> Enum.join("\n")
-      end)
-
-    "[SUBAGENT_RETURN]\n" <> body
-  end
-
-  defp preview_subagent_payload(payload, config) do
-    text =
-      if is_binary(payload) do
-        payload
-      else
-        inspect(payload, pretty: true, limit: 20, printable_limit: 4000)
-      end
-
-    RLM.Truncate.truncate(text,
-      head: min(400, config.truncation_head),
-      tail: min(400, config.truncation_tail)
-    )
-  end
 
   defp snapshot_iteration(agent_id, iteration, history, config, bindings) do
     compacted? = Keyword.get(bindings, :compacted_history, "") != ""
@@ -214,6 +86,16 @@ defmodule RLM.Loop do
     RLM.Observability.iteration_stop(agent_id, iteration, status, iteration_started_at)
     snapshot_iteration(agent_id, iteration, history, config, bindings)
     {result, history, bindings}
+  end
+
+  defp finish_staged_result(history, bindings, config, agent_id, iteration, {:ok, answer}) do
+    snapshot_iteration(agent_id, iteration, history, config, bindings)
+    {{:ok, normalize_answer(answer)}, history, bindings}
+  end
+
+  defp finish_staged_result(history, bindings, config, agent_id, iteration, {:error, reason}) do
+    snapshot_iteration(agent_id, iteration, history, config, bindings)
+    {{:error, normalize_answer(reason)}, history, bindings}
   end
 
   defp strip_leading_agent_tags(text) when is_binary(text) do
@@ -240,10 +122,10 @@ defmodule RLM.Loop do
         history = append_agent_history(history, response)
 
         {status, full_stdout, full_stderr, result, new_bindings} =
-          evaluate_code(code, bindings, config, agent_id, iteration)
+          EvalFeedback.evaluate_code(code, bindings, config, agent_id, iteration)
 
         {history, new_bindings} =
-          apply_eval_feedback(
+          EvalFeedback.apply(
             history,
             new_bindings,
             status,
@@ -284,61 +166,6 @@ defmodule RLM.Loop do
     history ++ [%{role: :assistant, content: clean_response}]
   end
 
-  defp evaluate_code(code, bindings, config, agent_id, iteration) do
-    case RLM.Eval.eval(code, bindings,
-           timeout: config.eval_timeout,
-           lm_query_timeout: config.lm_query_timeout,
-           subagent_assessment_sample_rate: config.subagent_assessment_sample_rate,
-           agent_id: agent_id,
-           iteration: iteration
-         ) do
-      {:ok, stdout, stderr, result, new_bindings} ->
-        {:ok, stdout, stderr, result, new_bindings}
-
-      {:error, stdout, stderr, original_bindings} ->
-        {:error, stdout, stderr, nil, original_bindings}
-    end
-  end
-
-  defp apply_eval_feedback(history, bindings, status, result, full_stdout, full_stderr, config) do
-    truncated_stdout =
-      RLM.Truncate.truncate(full_stdout,
-        head: config.truncation_head,
-        tail: config.truncation_tail
-      )
-
-    truncated_stderr =
-      RLM.Truncate.truncate(full_stderr,
-        head: config.truncation_head,
-        tail: config.truncation_tail
-      )
-
-    final_answer_value = Keyword.get(bindings, :final_answer)
-
-    suppress_result? =
-      status == :ok and final_answer_value != nil and result == final_answer_value
-
-    result_for_output = if suppress_result?, do: nil, else: result
-
-    feedback =
-      RLM.Prompt.format_eval_output(truncated_stdout, truncated_stderr, status, result_for_output)
-
-    history =
-      if suppress_result? and truncated_stdout == "" and truncated_stderr == "" do
-        history
-      else
-        history ++ [%{role: :user, content: feedback}]
-      end
-
-    bindings =
-      bindings
-      |> Keyword.put(:last_stdout, full_stdout)
-      |> Keyword.put(:last_stderr, full_stderr)
-      |> Keyword.put(:last_result, result)
-
-    {history, bindings}
-  end
-
   defp continue_after_eval(
          history,
          bindings,
@@ -349,47 +176,253 @@ defmodule RLM.Loop do
          agent_id,
          iteration_started_at
        ) do
-    case Keyword.get(bindings, :final_answer) do
-      {:ok, answer} ->
-        Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
+    parent_agent_id = Keyword.get(bindings, :parent_agent_id)
+    dispatch_assessment = Keyword.get(bindings, :dispatch_assessment)
+    dispatch_assessment_required = Finalization.dispatch_assessment_required?(bindings)
 
-        finish_iteration(
+    cond do
+      Finalization.pending_dispatch_finalization?(bindings) ->
+        {history, bindings} =
+          Finalization.continue_pending_dispatch(history, bindings, depth, iteration)
+
+        continue_iteration(
           history,
           bindings,
+          model,
           config,
-          agent_id,
+          depth,
           iteration,
-          iteration_started_at,
-          :ok,
-          {:ok, normalize_answer(answer)}
+          agent_id,
+          iteration_started_at
         )
 
-      {:error, reason} ->
-        finish_iteration(
+      Finalization.pending_subagent_finalization?(bindings) ->
+        bindings = Finalization.continue_pending_subagent(bindings, depth, iteration)
+
+        continue_iteration(
           history,
           bindings,
+          model,
           config,
-          agent_id,
+          depth,
           iteration,
-          iteration_started_at,
-          :error,
-          {:error, normalize_answer(reason)}
+          agent_id,
+          iteration_started_at
         )
 
-      {:invalid, _other} ->
-        Logger.warning(
-          "[RLM] depth=#{depth} iteration=#{iteration} invalid final_answer format; expected a success value or fail(reason)"
-        )
+      true ->
+        case Keyword.get(bindings, :final_answer) do
+          {:ok, answer} ->
+            handle_final_commit(
+              :ok,
+              answer,
+              history,
+              bindings,
+              model,
+              config,
+              depth,
+              iteration,
+              agent_id,
+              iteration_started_at,
+              parent_agent_id,
+              dispatch_assessment,
+              dispatch_assessment_required
+            )
 
-        history = history ++ [%{role: :user, content: RLM.Prompt.invalid_final_answer_nudge()}]
-        bindings = Keyword.put(bindings, :final_answer, nil)
-        RLM.Observability.iteration_stop(agent_id, iteration, :error, iteration_started_at)
-        iterate(history, bindings, model, config, depth, iteration + 1, agent_id)
+          {:error, reason} ->
+            handle_final_commit(
+              :error,
+              reason,
+              history,
+              bindings,
+              model,
+              config,
+              depth,
+              iteration,
+              agent_id,
+              iteration_started_at,
+              parent_agent_id,
+              dispatch_assessment,
+              dispatch_assessment_required
+            )
 
-      nil ->
-        RLM.Observability.iteration_stop(agent_id, iteration, :ok, iteration_started_at)
-        iterate(history, bindings, model, config, depth, iteration + 1, agent_id)
+          {:invalid, _other} ->
+            Logger.warning(
+              "[RLM] depth=#{depth} iteration=#{iteration} invalid final_answer format; expected a success value or fail(reason)"
+            )
+
+            history =
+              history ++ [%{role: :user, content: RLM.Prompt.invalid_final_answer_nudge()}]
+
+            bindings =
+              bindings
+              |> Keyword.put(:final_answer, nil)
+              |> Keyword.put(:dispatch_assessment, nil)
+
+            continue_iteration(
+              history,
+              bindings,
+              model,
+              config,
+              depth,
+              iteration,
+              agent_id,
+              iteration_started_at,
+              :error
+            )
+
+          nil ->
+            if dispatch_assessment_required and
+                 Finalization.valid_dispatch_assessment?(dispatch_assessment) do
+              Logger.warning(
+                "[RLM] depth=#{depth} iteration=#{iteration} assess_dispatch used without final_answer"
+              )
+
+              history =
+                history ++
+                  [%{role: :user, content: RLM.Prompt.invalid_dispatch_assessment_nudge()}]
+
+              bindings = Keyword.put(bindings, :dispatch_assessment, nil)
+
+              continue_iteration(
+                history,
+                bindings,
+                model,
+                config,
+                depth,
+                iteration,
+                agent_id,
+                iteration_started_at,
+                :error
+              )
+            else
+              continue_iteration(
+                history,
+                bindings,
+                model,
+                config,
+                depth,
+                iteration,
+                agent_id,
+                iteration_started_at
+              )
+            end
+        end
     end
+  end
+
+  defp handle_final_commit(
+         final_status,
+         payload,
+         history,
+         bindings,
+         model,
+         config,
+         depth,
+         iteration,
+         agent_id,
+         iteration_started_at,
+         parent_agent_id,
+         dispatch_assessment,
+         dispatch_assessment_required
+       ) do
+    pending = {final_status, payload}
+
+    if dispatch_assessment_required and
+         not Finalization.valid_dispatch_assessment?(dispatch_assessment) do
+      stage_note =
+        if final_status == :ok,
+          do: "final_answer staged; dispatch assessment missing",
+          else: "failure staged; dispatch assessment missing"
+
+      Logger.warning("[RLM] depth=#{depth} iteration=#{iteration} #{stage_note}")
+
+      history =
+        history ++ [%{role: :user, content: RLM.Prompt.dispatch_assessment_checkin_nudge()}]
+
+      bindings = Finalization.stage_pending_dispatch(bindings, pending, iteration)
+
+      continue_iteration(
+        history,
+        bindings,
+        model,
+        config,
+        depth,
+        iteration,
+        agent_id,
+        iteration_started_at,
+        :error
+      )
+    else
+      bindings =
+        Finalization.finalize_dispatch_assessment(
+          bindings,
+          parent_agent_id,
+          agent_id,
+          final_status,
+          dispatch_assessment,
+          dispatch_assessment_required
+        )
+
+      case Finalization.maybe_stage_subagent_assessments(
+             bindings,
+             pending,
+             depth,
+             iteration,
+             agent_id
+           ) do
+        {:stage, bindings, child_ids} ->
+          history =
+            history ++
+              [%{role: :user, content: RLM.Prompt.subagent_assessment_checkin_nudge(child_ids)}]
+
+          continue_iteration(
+            history,
+            bindings,
+            model,
+            config,
+            depth,
+            iteration,
+            agent_id,
+            iteration_started_at,
+            :error
+          )
+
+        :no_stage ->
+          if final_status == :ok do
+            Logger.info("[RLM] depth=#{depth} completed with answer at iteration=#{iteration}")
+          end
+
+          finish_iteration(
+            history,
+            bindings,
+            config,
+            agent_id,
+            iteration,
+            iteration_started_at,
+            final_status,
+            normalize_final_result(final_status, payload)
+          )
+      end
+    end
+  end
+
+  defp normalize_final_result(:ok, payload), do: {:ok, normalize_answer(payload)}
+  defp normalize_final_result(:error, payload), do: {:error, normalize_answer(payload)}
+
+  defp continue_iteration(
+         history,
+         bindings,
+         model,
+         config,
+         depth,
+         iteration,
+         agent_id,
+         iteration_started_at,
+         status \\ :ok
+       ) do
+    RLM.Observability.iteration_stop(agent_id, iteration, status, iteration_started_at)
+    iterate(history, bindings, model, config, depth, iteration + 1, agent_id)
   end
 
   defp handle_no_code_response(
@@ -457,6 +490,7 @@ defmodule RLM.Loop do
           depth: depth + 1,
           agent_id: child_agent_id,
           parent_agent_id: parent_agent_id,
+          dispatch_assessment_required: assessment_sampled,
           workspace_root: workspace_root,
           workspace_read_only: workspace_read_only
         )

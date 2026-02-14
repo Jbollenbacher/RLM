@@ -21,15 +21,23 @@ defmodule RLM.Session do
     depth = Keyword.get(opts, :depth, 0)
     workspace_root = Keyword.get(opts, :workspace_root)
     workspace_read_only = Keyword.get(opts, :workspace_read_only, false)
+    dispatch_assessment_required = Keyword.get(opts, :dispatch_assessment_required, false)
 
     lm_query_fn = RLM.Loop.build_lm_query(config, depth, workspace_root, workspace_read_only, id)
 
     bindings = [
       context: context,
       lm_query: lm_query_fn,
+      parent_agent_id: parent_agent_id,
+      dispatch_assessment_required: dispatch_assessment_required,
       workspace_root: workspace_root,
       workspace_read_only: workspace_read_only,
       final_answer: nil,
+      pending_final_answer: nil,
+      dispatch_assessment_checkin_deadline_iteration: nil,
+      pending_subagent_final_answer: nil,
+      pending_subagent_assessment_child_ids: [],
+      subagent_assessment_checkin_deadline_iteration: nil,
       last_stdout: "",
       last_stderr: "",
       last_result: nil

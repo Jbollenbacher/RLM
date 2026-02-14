@@ -1,5 +1,3 @@
-Under construction
-
 # RLM — Recursive Language Model
 
 An Elixir-hosted implementation of the Recursive Language Model pattern. The RLM addresses LLM context window limitations by keeping input data out of the context entirely — instead, the LLM writes Python code in a persistent REPL to inspect, chunk, and recursively process data through sub-LLM calls.
@@ -49,6 +47,11 @@ mix rlm "What is 2 + 2?"
 # Single turn with piped input
 cat document.txt | mix rlm "Summarize this document"
 
+# Single turn + save full agent logs export JSON (headless, no web UI)
+mix rlm --single-turn --export-logs "Analyze this file"
+# Optional custom export path (file or directory)
+mix rlm --single-turn --export-logs-path ./logs "Analyze this file"
+
 # Workspace access (model can list/read/edit/create files under the workspace root)
 mix rlm --workspace /path/to/project
 
@@ -76,6 +79,12 @@ mix rlm --web --web-port 4005
 
 
 ## Architecture
+
+For a full repo walkthrough, see the architecture map:
+
+- [`docs/repo-architecture-map.md`](docs/repo-architecture-map.md)
+
+Quick module overview:
 
 - `RLM.Loop` — Main orchestration loop (REPL driver)
 - `RLM.Eval` — Pythonx-backed code evaluation with IO capture

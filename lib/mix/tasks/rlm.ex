@@ -13,6 +13,9 @@ defmodule Mix.Tasks.Rlm do
           workspace: :string,
           read_only: :boolean,
           interactive: :boolean,
+          single_turn: :boolean,
+          export_logs: :boolean,
+          export_logs_path: :string,
           verbose: :boolean,
           debug: :boolean,
           web: :boolean,
@@ -28,16 +31,23 @@ defmodule Mix.Tasks.Rlm do
     validate_workspace_root(workspace_root)
     workspace_read_only = Keyword.get(opts, :read_only, false)
     validate_read_only(workspace_root, workspace_read_only)
+    export_logs_path = resolve_export_logs_path(opts)
 
     context = read_stdin()
     web? = Keyword.get(opts, :web, false)
 
     if web? do
+      if export_logs_path do
+        Mix.raise("--export-logs cannot be used with --web mode")
+      end
+
       run_web_mode(opts, query, context, workspace_root, workspace_read_only)
     else
       interactive? =
-        Keyword.get(opts, :interactive, false) or workspace_root != nil or
-          (query == "" and context == "")
+        not Keyword.get(opts, :single_turn, false) and
+          is_nil(export_logs_path) and
+          (Keyword.get(opts, :interactive, false) or workspace_root != nil or
+             (query == "" and context == ""))
 
       cond do
         interactive? ->
@@ -60,9 +70,20 @@ defmodule Mix.Tasks.Rlm do
         true ->
           IO.puts(:stderr, "Running RLM on #{byte_size(context)} bytes...")
 
-          context
-          |> start_session(workspace_root, workspace_read_only)
-          |> ask_and_print(query, interactive: false)
+          maybe_enable_headless_observability(export_logs_path)
+
+          result =
+            RLM.run(context, query,
+              workspace_root: workspace_root,
+              workspace_read_only: workspace_read_only
+            )
+
+          exit_code = print_single_turn_result(result)
+          maybe_export_logs(export_logs_path)
+
+          if exit_code != 0 do
+            System.halt(exit_code)
+          end
 
           :ok
       end
@@ -142,6 +163,61 @@ defmodule Mix.Tasks.Rlm do
     end
   end
 
+  defp resolve_export_logs_path(opts) do
+    path = Keyword.get(opts, :export_logs_path)
+    enabled? = Keyword.get(opts, :export_logs, false)
+
+    cond do
+      is_binary(path) and String.trim(path) != "" ->
+        path
+
+      enabled? ->
+        RLM.Helpers.timestamped_filename("rlm_agent_logs")
+
+      true ->
+        nil
+    end
+  end
+
+  defp maybe_enable_headless_observability(nil), do: :ok
+
+  defp maybe_enable_headless_observability(_path) do
+    case RLM.Observability.start(serve: false) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Mix.raise("Failed to start observability for export: #{inspect(reason)}")
+    end
+  end
+
+  defp maybe_export_logs(nil), do: :ok
+
+  defp maybe_export_logs(path) do
+    target = normalize_export_path(path)
+    File.mkdir_p!(Path.dirname(target))
+
+    export = RLM.Observability.Export.full_agent_logs(include_system: true, debug: false)
+    File.write!(target, Jason.encode!(export, pretty: true))
+
+    IO.puts(:stderr, "Saved agent logs to #{target}")
+  end
+
+  defp normalize_export_path(path) do
+    expanded = Path.expand(path)
+
+    cond do
+      File.dir?(expanded) ->
+        Path.join(expanded, RLM.Helpers.timestamped_filename("rlm_agent_logs"))
+
+      String.ends_with?(path, "/") ->
+        Path.join(expanded, RLM.Helpers.timestamped_filename("rlm_agent_logs"))
+
+      true ->
+        expanded
+    end
+  end
+
   defp wait_forever do
     receive do
       _ -> wait_forever()
@@ -178,6 +254,16 @@ defmodule Mix.Tasks.Rlm do
     {result, next_session} = RLM.Session.ask(session, query)
     print_result(result, opts)
     next_session
+  end
+
+  defp print_single_turn_result({:ok, answer}) do
+    IO.puts(answer)
+    0
+  end
+
+  defp print_single_turn_result({:error, reason}) do
+    IO.puts(:stderr, "Error: #{reason}")
+    1
   end
 
   defp print_result({:ok, answer}, _opts) do
