@@ -51,4 +51,15 @@ defmodule RLM.SurveyTest do
     refreshed = RLM.Survey.ensure_dispatch_quality(state, true)
     assert refreshed["dispatch_quality"].status == :missing
   end
+
+  test "unknown string scope defaults to agent without atom conversion" do
+    {state, survey} =
+      RLM.Survey.ensure_survey(RLM.Survey.init_state(), %{
+        id: "q_scope",
+        scope: "not_a_real_scope"
+      })
+
+    assert survey.scope == :agent
+    assert state["q_scope"].scope == :agent
+  end
 end

@@ -220,6 +220,54 @@ print(result_b)
       assert stdout =~ "done:subtask-a"
       assert stdout =~ "done:subtask-b"
     end
+
+    test "bridge clears malformed requests and remains responsive" do
+      bridge =
+        RLM.Eval.Bridge.start(
+          [lm_query: fn text, _opts -> {:ok, "done:" <> text} end],
+          lm_query_timeout: 1_000,
+          subagent_assessment_sample_rate: 1.0,
+          parent_agent_id: "agent_parent"
+        )
+
+      on_exit(fn -> RLM.Eval.Bridge.stop(bridge) end)
+
+      requests_dir = Path.join(bridge.dir, "requests")
+      responses_dir = Path.join(bridge.dir, "responses")
+
+      malformed_request = Path.join(requests_dir, "malformed.json")
+      malformed_response = Path.join(responses_dir, "malformed.json")
+      File.write!(malformed_request, "{not-json")
+
+      assert wait_until(fn -> File.exists?(malformed_response) end)
+      refute File.exists?(malformed_request)
+
+      malformed_payload =
+        malformed_response
+        |> File.read!()
+        |> Jason.decode!()
+
+      assert malformed_payload["status"] == "error"
+      assert malformed_payload["payload"] =~ "Malformed lm_query request"
+
+      valid_request = Path.join(requests_dir, "valid.json")
+      valid_response = Path.join(responses_dir, "valid.json")
+
+      File.write!(
+        valid_request,
+        Jason.encode!(%{"op" => "dispatch", "text" => "subtask", "model_size" => "small"})
+      )
+
+      assert wait_until(fn -> File.exists?(valid_response) end)
+
+      valid_payload =
+        valid_response
+        |> File.read!()
+        |> Jason.decode!()
+
+      assert valid_payload["status"] == "ok"
+      assert is_binary(valid_payload["payload"])
+    end
   end
 
   describe "dispatch assessment helper" do
@@ -281,6 +329,18 @@ result = assess_dispatch("satisfied", reason="optional")
         )
 
       assert Keyword.get(bindings, :dispatch_assessment) == nil
+    end
+  end
+
+  defp wait_until(fun, attempts \\ 100)
+  defp wait_until(_fun, 0), do: false
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(20)
+      wait_until(fun, attempts - 1)
     end
   end
 end

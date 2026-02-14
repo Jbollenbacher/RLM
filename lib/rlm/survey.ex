@@ -290,6 +290,14 @@ defmodule RLM.Survey do
   defp validate_response(response, _schema), do: {:ok, response}
 
   defp normalize_scope(scope) when scope in [:agent, :child], do: scope
-  defp normalize_scope(scope) when is_binary(scope), do: normalize_scope(String.to_atom(scope))
+
+  defp normalize_scope(scope) when is_binary(scope) do
+    case scope |> String.trim() |> String.trim_leading(":") |> String.downcase() do
+      "child" -> :child
+      "agent" -> :agent
+      _ -> :agent
+    end
+  end
+
   defp normalize_scope(_), do: :agent
 end

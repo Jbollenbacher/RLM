@@ -129,24 +129,40 @@ defmodule RLM.Eval.Bridge do
           request_path = Path.join(requests_dir, file)
           response_path = Path.join(responses_dir, file)
 
-          with {:ok, raw} <- File.read(request_path),
-               {:ok, payload} <- Jason.decode(raw) do
-            result =
-              handle_request(
-                payload,
-                lm_query_fn,
-                default_timeout_ms,
-                sample_rate,
-                parent_agent_id
-              )
+          result =
+            case read_request_payload(request_path) do
+              {:ok, payload} ->
+                handle_request(
+                  payload,
+                  lm_query_fn,
+                  default_timeout_ms,
+                  sample_rate,
+                  parent_agent_id
+                )
 
-            _ = write_json_atomic(response_path, result)
-            _ = File.rm(request_path)
-          end
+              {:error, reason} ->
+                error_payload("Malformed lm_query request: #{reason}")
+            end
+
+          _ = write_json_atomic(response_path, result)
+          _ = File.rm(request_path)
         end)
 
       {:error, _reason} ->
         :ok
+    end
+  end
+
+  defp read_request_payload(path) do
+    with {:ok, raw} <- File.read(path),
+         {:ok, payload} <- Jason.decode(raw) do
+      {:ok, payload}
+    else
+      {:error, %Jason.DecodeError{} = error} ->
+        {:error, "invalid JSON (#{Exception.message(error)})"}
+
+      {:error, reason} ->
+        {:error, "could not read request file (#{inspect(reason)})"}
     end
   end
 
