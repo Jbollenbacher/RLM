@@ -102,6 +102,12 @@ Quick module overview:
 - `RLM.Observability.Router`/`RLM.Observability.UI` — Embedded web observability API + HTML shell with JS parts loaded from `priv/observability_ui/*.js`
 - `Mix.Tasks.Rlm` — CLI entrypoint (single-turn and interactive sessions)
 
+Runtime contract notes:
+
+- Each model turn is expected to contain executable Python (prefer fenced ` ```python ... ``` ` blocks). Check-in turns without executable Python are treated as failed turns.
+- Code extraction is tolerant to common formatting drift (` ```python ... ``` `, `<python>...</python>`, and clearly code-like unfenced responses), but fenced Python remains the primary contract.
+- `--export-logs` / `--export-logs-path` export failures are handled defensively (warning on stderr instead of crashing the CLI run).
+
 ## Benchmark Optimization Harness
 
 The repo now includes an assessment-driven benchmark harness under `bench/` and `mix rlm.bench.*` tasks.
@@ -146,6 +152,8 @@ Quiet mode suppresses per-task subprocess output and writes logs to:
 - `bench_data/runs/<run_id>/task_logs/<task_id>.meta.json`
 
 Benchmark runs export debug/full event logs by default, and optimizer cycles can automatically inspect weak runs to surface failure patterns before the next prompt tweak.
+Benchmark task subprocesses run with `MIX_NO_COMPILE=1` to avoid repeated per-task compilation churn.
+The benchmark champion variant (`bench/variants/champion_v1.md`) is kept aligned with the base runtime response contract in `priv/system_prompt.md`.
 
 Inspect a saved logfile tail without rerunning:
 

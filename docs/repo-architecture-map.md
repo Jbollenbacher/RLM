@@ -66,6 +66,7 @@ RLM (Recursive Language Model) is an Elixir-hosted recursive agent loop:
     - export-log view control (`--export-logs-debug` for debug/full event export)
     - logger controls (`--verbose`, `--debug`)
   - Reads stdin context and query positional args.
+  - Export path behavior is defensive: if full-log export fails, CLI warns on stderr and preserves the task result path instead of crashing.
 - `lib/mix/tasks/rlm.bench.*.ex`
   - Assessment optimization pipeline:
     - corpus pull-down (`rlm.bench.pull`)
@@ -74,6 +75,7 @@ RLM (Recursive Language Model) is an Elixir-hosted recursive agent loop:
     - run comparison (`rlm.bench.ab`)
     - autonomous prompt-only optimization loop (`rlm.bench.optimize`)
     - saved log inspection (`rlm.bench.logs`)
+  - Benchmark task subprocesses are executed with `MIX_NO_COMPILE=1` to reduce per-task compile churn.
 
 ### 3.4 Web UI/HTTP
 
@@ -137,7 +139,7 @@ Web chat flow:
     7. Execute via `RLM.Eval`.
     8. Feed truncated stdout/stderr/result back as `[REPL][AGENT]` message (unless intentionally suppressed when final answer already captured and no output changed).
     9. Continue or finalize based on `final_answer` and assessment rules.
-  - Handles repeated no-code behavior by one nudge + hard failure on repeat.
+  - Handles repeated no-code behavior by one nudge + hard failure on repeat, and check-in turns explicitly require executable Python.
 
 ### 4.3 Finalization and Check-In Gates
 
@@ -155,7 +157,7 @@ Web chat flow:
 - `lib/rlm/llm.ex`
   - Uses `Req` + `Finch` to call OpenAI-compatible `POST /chat/completions`.
   - Retries transient failures.
-  - Extracts code from fenced blocks; executes the last block.
+  - Extracts executable code from fenced Python blocks first, then `<python>...</python>` tags, then clearly code-like unfenced fallbacks when needed.
   - Emits observability span metadata (model, tail context preview, sizes).
 
 ## 5. Python Eval Boundary
@@ -237,10 +239,10 @@ Web chat flow:
 
 - `lib/rlm/prompt.ex`
   - System/user message builders.
-  - Nudge templates for no-code, invalid final answer, and assessment check-ins.
+  - Nudge templates for no-code, invalid final answer, and assessment check-ins (including explicit executable-code requirements during check-ins).
   - Eval feedback formatter with recovery hints.
 - `priv/system_prompt.md`
-  - Behavioral contract for the recursive coding agent.
+  - Behavioral contract for the recursive coding agent, including the strict executable-Python-per-turn expectation.
 - `lib/rlm/truncate.ex`
   - Generic head/tail truncator used across REPL output, previews, and snapshots.
 - Compaction behavior (`RLM.Loop.Compaction.maybe_compact/5`, surfaced through `RLM.Loop.maybe_compact/5`)
