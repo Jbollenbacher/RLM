@@ -16,14 +16,16 @@ defmodule RLM.Bench.Runner do
     failure_tail_lines = Keyword.get(opts, :failure_tail_lines, 80)
     progress_every = Keyword.get(opts, :progress_every, 5)
 
-    run_id = Keyword.get(opts, :run_id, run_id())
+    run_id =
+      case Keyword.get(opts, :run_id) do
+        value when is_binary(value) and value != "" -> value
+        _ -> run_id()
+      end
+
     run_dir = Paths.ensure_dir!(Path.join(Paths.runs_dir(), run_id))
     exports_dir = Paths.ensure_dir!(Path.join(run_dir, "exports"))
 
-    log_dir =
-      opts
-      |> Keyword.get(:log_dir, Path.join(run_dir, "task_logs"))
-      |> Paths.ensure_dir!()
+    log_dir = resolve_log_dir(opts, run_dir)
 
     tasks =
       tasks_path
@@ -104,7 +106,6 @@ defmodule RLM.Bench.Runner do
     task_id = Map.fetch!(task, "task_id")
     query = Map.fetch!(task, "query")
     context_path = Map.fetch!(task, "context_path")
-    context = File.read!(context_path)
     required_min_dispatches = Map.get(task, "required_min_dispatches", 0)
 
     export_path = Path.join(exports_dir, "#{task_id}.json")
@@ -119,12 +120,13 @@ defmodule RLM.Bench.Runner do
     started_at_ms = System.system_time(:millisecond)
     started_at_native = System.monotonic_time()
 
+    command = mix_rlm_command(context_path, export_path, query, export_debug)
+
     {output, exit_code} =
       System.cmd(
-        "mix",
-        mix_rlm_args(export_path, query, export_debug),
+        "sh",
+        ["-lc", command],
         cd: File.cwd!(),
-        input: context,
         stderr_to_stdout: true,
         env: env
       )
@@ -231,10 +233,22 @@ defmodule RLM.Bench.Runner do
   defp put_env_if(env, _key, ""), do: env
   defp put_env_if(env, key, value), do: [{key, value} | env]
 
-  defp mix_rlm_args(export_path, query, export_debug) do
-    base = ["rlm", "--single-turn", "--export-logs-path", export_path]
-    base = if export_debug, do: base ++ ["--export-logs-debug"], else: base
-    base ++ [query]
+  defp resolve_log_dir(opts, run_dir) do
+    case Keyword.get(opts, :log_dir) do
+      value when is_binary(value) and value != "" -> Paths.ensure_dir!(value)
+      _ -> Paths.ensure_dir!(Path.join(run_dir, "task_logs"))
+    end
+  end
+
+  defp mix_rlm_command(context_path, export_path, query, export_debug) do
+    debug_flag = if export_debug, do: " --export-logs-debug", else: ""
+
+    "cat #{shell_escape(context_path)} | mix rlm --single-turn --export-logs-path #{shell_escape(export_path)}#{debug_flag} #{shell_escape(query)}"
+  end
+
+  defp shell_escape(value) when is_binary(value) do
+    escaped = String.replace(value, "'", "'\"'\"'")
+    "'#{escaped}'"
   end
 
   defp read_tail_lines(path, n) when n <= 0, do: File.read!(path)
