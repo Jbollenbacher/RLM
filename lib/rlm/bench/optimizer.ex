@@ -16,8 +16,7 @@ defmodule RLM.Bench.Optimizer do
     profile_path = Keyword.get(opts, :profile_path, Paths.default_profile_path())
 
     with {:ok, profile} <- Profile.load(profile_path) do
-      session_id =
-        "opt_#{DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601() |> String.replace(":", "-")}_#{System.unique_integer([:positive])}"
+      session_id = Util.timestamp_id("opt")
 
       session_dir = Paths.ensure_dir!(Path.join(Paths.optimize_dir(), session_id))
       variants_dir = Paths.ensure_dir!(Path.join(session_dir, "variants"))

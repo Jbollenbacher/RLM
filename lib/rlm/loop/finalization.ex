@@ -5,6 +5,20 @@ defmodule RLM.Loop.Finalization do
 
   @type pending_answer :: {:ok, term()} | {:error, term()}
 
+  @internal_binding_keys [
+    :pending_final_answer,
+    :dispatch_assessment_checkin_deadline_iteration,
+    :pending_subagent_final_answer,
+    :pending_subagent_assessment_child_ids,
+    :subagent_assessment_checkin_deadline_iteration,
+    :pending_required_survey_final_answer,
+    :pending_required_survey_ids,
+    :required_survey_checkin_deadline_iteration
+  ]
+
+  @spec internal_binding_keys() :: [atom()]
+  def internal_binding_keys, do: @internal_binding_keys
+
   @spec resolve_pending(keyword(), non_neg_integer(), non_neg_integer(), String.t() | nil) ::
           {:halt, pending_answer(), keyword()} | {:continue, keyword()}
   def resolve_pending(bindings, depth, iteration, agent_id) do
@@ -133,7 +147,6 @@ defmodule RLM.Loop.Finalization do
     |> Keyword.put(:pending_final_answer, pending_final_answer)
     |> Keyword.put(:dispatch_assessment_checkin_deadline_iteration, iteration + 1)
     |> Keyword.put(:final_answer, nil)
-    |> Keyword.put(:dispatch_assessment, nil)
   end
 
   @spec maybe_stage_required_surveys(
@@ -201,7 +214,7 @@ defmodule RLM.Loop.Finalization do
       end
     end
 
-    Keyword.put(bindings, :dispatch_assessment, nil)
+    bindings
   end
 
   @spec valid_dispatch_assessment?(term()) :: boolean()
@@ -537,10 +550,9 @@ defmodule RLM.Loop.Finalization do
 
   @spec dispatch_assessment(keyword()) :: map() | nil
   def dispatch_assessment(bindings) do
-    Keyword.get(bindings, :dispatch_assessment) ||
-      bindings
-      |> Keyword.get(:survey_state, RLM.Survey.init_state())
-      |> RLM.Survey.dispatch_assessment()
+    bindings
+    |> Keyword.get(:survey_state, RLM.Survey.init_state())
+    |> RLM.Survey.dispatch_assessment()
   end
 
   @spec clear_dispatch_assessment(keyword()) :: keyword()
@@ -550,9 +562,7 @@ defmodule RLM.Loop.Finalization do
       |> Keyword.get(:survey_state, RLM.Survey.init_state())
       |> RLM.Survey.clear_response(RLM.Survey.dispatch_quality_id())
 
-    bindings
-    |> Keyword.put(:dispatch_assessment, nil)
-    |> Keyword.put(:survey_state, survey_state)
+    Keyword.put(bindings, :survey_state, survey_state)
   end
 
   defp update_dispatch_survey(bindings, verdict, reason) do
@@ -607,7 +617,7 @@ defmodule RLM.Loop.Finalization do
       |> Enum.map(&Map.get(&1, :id))
       |> Enum.reject(&is_nil/1)
       |> Enum.map(&to_string/1)
-      |> Enum.reject(&(&1 == RLM.Survey.dispatch_quality_id()))
+      |> Enum.reject(&(&1 in [RLM.Survey.dispatch_quality_id(), RLM.Survey.subagent_usefulness_id()]))
 
     case tracked_ids do
       [] ->

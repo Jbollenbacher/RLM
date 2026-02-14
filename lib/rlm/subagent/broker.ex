@@ -20,8 +20,6 @@ defmodule RLM.Subagent.Broker do
               answered_surveys: [map()]
             }
 
-  @type assessment_verdict :: :satisfied | :dissatisfied
-
   @type push_update :: %{
           child_agent_id: child_id(),
           state: :ok | :error | :cancelled,
@@ -90,14 +88,6 @@ defmodule RLM.Subagent.Broker do
   @spec cancel(parent_id(), child_id()) :: {:ok, poll_state()} | {:error, String.t()}
   def cancel(parent_id, child_id) when is_binary(parent_id) and is_binary(child_id) do
     call_if_running(fn -> GenServer.call(@name, {:cancel, parent_id, child_id}) end)
-  end
-
-  @spec assess(parent_id(), child_id(), assessment_verdict(), String.t()) ::
-          {:ok, poll_state()} | {:error, String.t()}
-  def assess(parent_id, child_id, verdict, reason \\ "")
-      when is_binary(parent_id) and is_binary(child_id) and
-             verdict in [:satisfied, :dissatisfied] and is_binary(reason) do
-    answer_survey(parent_id, child_id, RLM.Survey.subagent_usefulness_id(), verdict, reason)
   end
 
   @spec answer_survey(parent_id(), child_id(), String.t(), term(), String.t()) ::
@@ -194,7 +184,7 @@ defmodule RLM.Subagent.Broker do
           assessment_missing_emitted: false,
           completion_notified: false,
           assessment_prompt_pending: false,
-          surveys: initial_surveys(assessment_sampled),
+          surveys: initial_surveys(),
           survey_requested_notified: false
         }
 
@@ -630,7 +620,7 @@ defmodule RLM.Subagent.Broker do
     })
   end
 
-  defp initial_surveys(_assessment_sampled) do
+  defp initial_surveys do
     RLM.Survey.init_state()
     |> RLM.Survey.ensure_subagent_usefulness(false)
   end
@@ -640,7 +630,7 @@ defmodule RLM.Subagent.Broker do
     job.surveys |> ensure_job_surveys_present() |> RLM.Survey.ensure_subagent_usefulness(required)
   end
 
-  defp ensure_job_surveys_present(nil), do: initial_surveys(false)
+  defp ensure_job_surveys_present(nil), do: initial_surveys()
   defp ensure_job_surveys_present(surveys) when is_map(surveys), do: surveys
 
   defp required_survey_pending?(surveys) do

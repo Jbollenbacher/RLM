@@ -114,7 +114,7 @@ defmodule RLM.SubagentBrokerTest do
     assert [%{child_agent_id: ^child_id}] = RLM.Subagent.Broker.pending_assessments(parent_id)
 
     assert {:ok, assessed_state} =
-             RLM.Subagent.Broker.assess(parent_id, child_id, :satisfied, "useful")
+             RLM.Subagent.Broker.answer_survey(parent_id, child_id, "subagent_usefulness", :satisfied, "useful")
 
     assert assessed_state.assessment.verdict == :satisfied
     assert assessed_state.assessment.reason == "useful"
@@ -143,7 +143,7 @@ defmodule RLM.SubagentBrokerTest do
              )
 
     assert {:error, reason} =
-             RLM.Subagent.Broker.assess(parent_id, child_id, :dissatisfied, "too early")
+             RLM.Subagent.Broker.answer_survey(parent_id, child_id, "subagent_usefulness", :dissatisfied, "too early")
 
     assert reason =~ "still running"
   end

@@ -118,31 +118,13 @@ defmodule RLM.Bench.Inspector do
 
   defp export_event_types(_), do: []
 
-  defp collect_event_types(%{"agent_tree" => roots}) when is_list(roots) do
-    roots
-    |> Enum.flat_map(&collect_node_event_types/1)
+  defp collect_event_types(export) do
+    export
+    |> RLM.Bench.Metrics.collect_export_events()
+    |> Enum.map(&Map.get(&1, "type"))
+    |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
   end
-
-  defp collect_event_types(_), do: []
-
-  defp collect_node_event_types(%{"timeline" => timeline}) when is_list(timeline) do
-    Enum.flat_map(timeline, fn
-      %{"kind" => "event", "event" => %{"type" => type}} ->
-        [type]
-
-      %{"kind" => "dispatch", "event" => %{"type" => type}, "child_agent" => child} ->
-        [type | collect_node_event_types(child)]
-
-      %{"kind" => "child", "child_agent" => child} ->
-        collect_node_event_types(child)
-
-      _ ->
-        []
-    end)
-  end
-
-  defp collect_node_event_types(_), do: []
 
   defp add_signal(list, true, signal), do: [signal | list]
   defp add_signal(list, false, _signal), do: list
@@ -194,13 +176,6 @@ defmodule RLM.Bench.Inspector do
     end
   end
 
-  defp tail_lines(body, n) when is_binary(body) and is_integer(n) and n > 0 do
-    body
-    |> String.split("\n")
-    |> Enum.take(-n)
-    |> Enum.join("\n")
-  end
-
-  defp tail_lines(body, _n), do: body
+  defp tail_lines(body, n), do: RLM.Bench.Util.tail_lines(body, n)
 
 end

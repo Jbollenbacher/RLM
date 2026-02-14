@@ -96,9 +96,6 @@ defmodule RLM.Eval do
               |> Keyword.get(:survey_state, RLM.Survey.init_state())
               |> RLM.Survey.merge_answers(survey_answers)
 
-            dispatch_assessment =
-              RLM.Survey.dispatch_assessment(survey_state)
-
             RLM.Observability.local_survey_answers(
               agent_id,
               Keyword.get(bindings, :parent_agent_id),
@@ -111,7 +108,6 @@ defmodule RLM.Eval do
               |> Keyword.put(:python_globals, prune_internal_globals(python_globals))
               |> Keyword.put(:final_answer, final_answer)
               |> Keyword.put(:survey_state, survey_state)
-              |> Keyword.put(:dispatch_assessment, dispatch_assessment)
 
             send(
               caller,
@@ -169,22 +165,12 @@ defmodule RLM.Eval do
   defp build_globals(bindings, bridge) do
     persisted = Keyword.get(bindings, :python_globals, %{})
 
+    excluded =
+      MapSet.new([:lm_query, :python_globals | RLM.Loop.Finalization.internal_binding_keys()])
+
     current =
       bindings
-      |> Enum.reject(fn {key, _value} ->
-        key in [
-          :lm_query,
-          :python_globals,
-          :pending_final_answer,
-          :dispatch_assessment_checkin_deadline_iteration,
-          :pending_subagent_final_answer,
-          :pending_subagent_assessment_child_ids,
-          :subagent_assessment_checkin_deadline_iteration,
-          :pending_required_survey_final_answer,
-          :pending_required_survey_ids,
-          :required_survey_checkin_deadline_iteration
-        ]
-      end)
+      |> Enum.reject(fn {key, _value} -> MapSet.member?(excluded, key) end)
       |> Enum.into(%{}, fn {key, value} -> {Atom.to_string(key), value} end)
 
     bridge_globals = %{

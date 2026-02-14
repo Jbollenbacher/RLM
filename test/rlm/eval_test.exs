@@ -300,7 +300,8 @@ final_answer = "done"
           dispatch_assessment_required: true
         )
 
-      assert Keyword.get(bindings, :dispatch_assessment) == %{
+      survey_state = Keyword.get(bindings, :survey_state)
+      assert RLM.Survey.dispatch_assessment(survey_state) == %{
                verdict: :satisfied,
                reason: "clear dispatch"
              }
@@ -328,7 +329,8 @@ result = assess_dispatch("satisfied", reason="optional")
           dispatch_assessment_required: false
         )
 
-      assert Keyword.get(bindings, :dispatch_assessment) == nil
+      survey_state = Keyword.get(bindings, :survey_state)
+      assert RLM.Survey.dispatch_assessment(survey_state) == nil
     end
   end
 

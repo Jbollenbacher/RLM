@@ -16,8 +16,7 @@ defmodule RLM.Bench.AB do
       thresholds = Map.merge(@default_thresholds, Map.get(opts, :thresholds, %{}))
       report = build_report(a, b, thresholds)
 
-      ab_id =
-        "ab_#{DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601() |> String.replace(":", "-")}_#{System.unique_integer([:positive])}"
+      ab_id = Util.timestamp_id("ab")
 
       out_dir = Paths.ensure_dir!(Path.join(Paths.ab_dir(), ab_id))
       report_path = Path.join(out_dir, "report.json")

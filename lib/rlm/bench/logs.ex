@@ -6,11 +6,7 @@ defmodule RLM.Bench.Logs do
   def tail(run_id, task_id, lines \\ 120) do
     with {:ok, log_path} <- resolve_log_path(run_id, task_id),
          {:ok, body} <- File.read(log_path) do
-      tail =
-        body
-        |> String.split("\n", trim: true)
-        |> Enum.take(-max(lines, 1))
-        |> Enum.join("\n")
+      tail = RLM.Bench.Util.tail_lines(body, max(lines, 1))
 
       {:ok, %{log_path: log_path, tail: tail}}
     else

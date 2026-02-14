@@ -101,19 +101,14 @@ defmodule RLM.Survey do
     end
   end
 
-  @spec answer_value(state(), String.t(), map()) :: {:ok, state(), t()} | {:error, String.t()}
-  def answer_value(state, survey_id, value) when is_map(value) do
-    response = Map.get(value, :response, Map.get(value, "response"))
-    reason = value |> Map.get(:reason, Map.get(value, "reason", "")) |> to_string()
-    answer(state, survey_id, response, reason)
-  end
-
   @spec merge_answers(state(), map()) :: state()
   def merge_answers(state, answers) when is_map(state) and is_map(answers) do
     Enum.reduce(answers, state, fn {raw_id, value}, acc ->
       survey_id = to_string(raw_id)
+      response = Map.get(value, :response, Map.get(value, "response"))
+      reason = value |> Map.get(:reason, Map.get(value, "reason", "")) |> to_string()
 
-      case answer_value(acc, survey_id, value) do
+      case answer(acc, survey_id, response, reason) do
         {:ok, updated, _survey} -> updated
         {:error, _reason} -> acc
       end
@@ -254,11 +249,7 @@ defmodule RLM.Survey do
     if Map.get(updated, :response) != nil do
       :answered
     else
-      case Map.get(base, :status, :pending) do
-        :missing -> :missing
-        :pending -> :pending
-        _ -> :pending
-      end
+      Map.get(base, :status, :pending)
     end
   end
 
@@ -290,14 +281,5 @@ defmodule RLM.Survey do
   defp validate_response(response, _schema), do: {:ok, response}
 
   defp normalize_scope(scope) when scope in [:agent, :child], do: scope
-
-  defp normalize_scope(scope) when is_binary(scope) do
-    case scope |> String.trim() |> String.trim_leading(":") |> String.downcase() do
-      "child" -> :child
-      "agent" -> :agent
-      _ -> :agent
-    end
-  end
-
   defp normalize_scope(_), do: :agent
 end

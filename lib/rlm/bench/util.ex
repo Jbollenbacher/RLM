@@ -29,6 +29,27 @@ defmodule RLM.Bench.Util do
   def stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
   def stringify_keys(other), do: other
 
+  @spec timestamp_id(String.t()) :: String.t()
+  def timestamp_id(prefix) do
+    ts =
+      DateTime.utc_now()
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+      |> String.replace(":", "-")
+
+    "#{prefix}_#{ts}_#{System.unique_integer([:positive])}"
+  end
+
+  @spec tail_lines(String.t(), non_neg_integer()) :: String.t()
+  def tail_lines(body, n) when is_binary(body) and is_integer(n) and n > 0 do
+    body
+    |> String.split("\n", trim: true)
+    |> Enum.take(-n)
+    |> Enum.join("\n")
+  end
+
+  def tail_lines(body, _n) when is_binary(body), do: body
+
   @spec load_json(String.t(), String.t()) :: {:ok, term()} | {:error, String.t()}
   def load_json(path, label \\ "file") do
     with {:ok, body} <- File.read(path),

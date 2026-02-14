@@ -31,27 +31,26 @@ defmodule RLM.Session do
 
     lm_query_fn = RLM.Loop.build_lm_query(config, depth, workspace_root, workspace_read_only, id)
 
-    bindings = [
-      context: context,
-      lm_query: lm_query_fn,
-      parent_agent_id: parent_agent_id,
-      dispatch_assessment_required: dispatch_assessment_required,
-      survey_state: survey_state,
-      workspace_root: workspace_root,
-      workspace_read_only: workspace_read_only,
-      final_answer: nil,
-      pending_final_answer: nil,
-      dispatch_assessment_checkin_deadline_iteration: nil,
-      pending_subagent_final_answer: nil,
-      pending_subagent_assessment_child_ids: [],
-      subagent_assessment_checkin_deadline_iteration: nil,
-      pending_required_survey_final_answer: nil,
-      pending_required_survey_ids: [],
-      required_survey_checkin_deadline_iteration: nil,
-      last_stdout: "",
-      last_stderr: "",
-      last_result: nil
-    ]
+    finalization_defaults =
+      Enum.map(RLM.Loop.Finalization.internal_binding_keys(), fn key ->
+        default = if key in [:pending_subagent_assessment_child_ids, :pending_required_survey_ids], do: [], else: nil
+        {key, default}
+      end)
+
+    bindings =
+      [
+        context: context,
+        lm_query: lm_query_fn,
+        parent_agent_id: parent_agent_id,
+        dispatch_assessment_required: dispatch_assessment_required,
+        survey_state: survey_state,
+        workspace_root: workspace_root,
+        workspace_read_only: workspace_read_only,
+        final_answer: nil,
+        last_stdout: "",
+        last_stderr: "",
+        last_result: nil
+      ] ++ finalization_defaults
 
     history = [%{role: :system, content: RLM.Prompt.system_prompt(config)}]
 

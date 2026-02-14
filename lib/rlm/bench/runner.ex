@@ -4,6 +4,7 @@ defmodule RLM.Bench.Runner do
   alias RLM.Bench.JSONL
   alias RLM.Bench.Metrics
   alias RLM.Bench.Paths
+  alias RLM.Bench.Util
 
   def run(opts \\ []) do
     tasks_path = Keyword.fetch!(opts, :tasks_path)
@@ -221,15 +222,7 @@ defmodule RLM.Bench.Runner do
   defp maybe_take(tasks, limit) when is_integer(limit) and limit > 0, do: Enum.take(tasks, limit)
   defp maybe_take(tasks, _other), do: tasks
 
-  defp run_id do
-    ts =
-      DateTime.utc_now()
-      |> DateTime.truncate(:second)
-      |> DateTime.to_iso8601()
-      |> String.replace(":", "-")
-
-    "run_#{ts}_#{System.unique_integer([:positive])}"
-  end
+  defp run_id, do: Util.timestamp_id("run")
 
   defp put_env(env, key, value), do: [{key, value} | env]
 
@@ -330,14 +323,8 @@ defmodule RLM.Bench.Runner do
     end
   end
 
-  defp read_tail_lines(path, n) when n <= 0, do: File.read!(path)
-
   defp read_tail_lines(path, n) do
-    path
-    |> File.read!()
-    |> String.split("\n")
-    |> Enum.take(-n)
-    |> Enum.join("\n")
+    Util.tail_lines(File.read!(path), n)
   rescue
     _ -> "(unable to read tail lines)"
   end

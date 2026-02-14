@@ -96,7 +96,8 @@ defmodule RLM.Bench.Metrics do
     }
   end
 
-  defp collect_export_events(%{"agent_tree" => roots}) when is_list(roots) do
+  @doc false
+  def collect_export_events(%{"agent_tree" => roots}) when is_list(roots) do
     {events, _visited} =
       Enum.reduce(roots, {[], MapSet.new()}, fn root, {acc, visited} ->
         collect_node_events(root, acc, visited)
@@ -105,7 +106,7 @@ defmodule RLM.Bench.Metrics do
     Enum.reverse(events)
   end
 
-  defp collect_export_events(_), do: []
+  def collect_export_events(_), do: []
 
   defp collect_node_events(%{"agent" => %{"id" => id}} = node, acc, visited) do
     if MapSet.member?(visited, id) do
