@@ -30,6 +30,7 @@ defmodule RLM.Bench.Optimizer do
       quiet_runs =
         Keyword.get(opts, :quiet_runs, Profile.get(profile, ["run_defaults", "quiet"], true))
 
+      stream_logs = Keyword.get(opts, :stream_logs, false)
       sample_rate = Profile.get(profile, ["run_defaults", "sample_rate"], 1.0)
       failure_tail_lines = Profile.get(profile, ["run_defaults", "failure_tail_lines"], 80)
       max_log_inspections = Profile.get(profile, ["run_defaults", "max_log_inspections"], 3)
@@ -52,6 +53,7 @@ defmodule RLM.Bench.Optimizer do
             tasks_path,
             batch_size,
             quiet_runs,
+            stream_logs,
             sample_rate,
             failure_tail_lines,
             max_log_inspections,
@@ -93,6 +95,7 @@ defmodule RLM.Bench.Optimizer do
          tasks_path,
          batch_size,
          quiet_runs,
+         stream_logs,
          sample_rate,
          failure_tail_lines,
          max_log_inspections,
@@ -110,6 +113,7 @@ defmodule RLM.Bench.Optimizer do
         variant_path: state.champion_path,
         limit: batch_size,
         quiet: quiet_runs,
+        stream_logs: stream_logs,
         sample_rate: sample_rate,
         failure_tail_lines: failure_tail_lines,
         export_debug: true,
@@ -145,6 +149,7 @@ defmodule RLM.Bench.Optimizer do
         variant_path: candidate_path,
         limit: batch_size,
         quiet: quiet_runs,
+        stream_logs: stream_logs,
         sample_rate: sample_rate,
         failure_tail_lines: failure_tail_lines,
         export_debug: true,

@@ -8,6 +8,7 @@ defmodule RLM.Bench.Runner do
   def run(opts \\ []) do
     tasks_path = Keyword.fetch!(opts, :tasks_path)
     quiet? = Keyword.get(opts, :quiet, true)
+    stream_logs? = Keyword.get(opts, :stream_logs, false)
     limit = Keyword.get(opts, :limit)
     seed = Keyword.get(opts, :seed)
     sample_rate = Keyword.get(opts, :sample_rate, 1.0)
@@ -33,7 +34,9 @@ defmodule RLM.Bench.Runner do
       |> maybe_shuffle(seed)
       |> maybe_take(limit)
 
-    IO.puts("[bench.run] run_id=#{run_id} tasks=#{length(tasks)} quiet=#{quiet?}")
+    IO.puts(
+      "[bench.run] run_id=#{run_id} tasks=#{length(tasks)} quiet=#{quiet?} stream_logs=#{stream_logs?}"
+    )
 
     {results, _index} =
       Enum.reduce(tasks, {[], 0}, fn task, {acc, index} ->
@@ -45,6 +48,7 @@ defmodule RLM.Bench.Runner do
             exports_dir,
             log_dir,
             quiet?,
+            stream_logs?,
             progress_every,
             failure_tail_lines,
             variant_path,
@@ -97,6 +101,7 @@ defmodule RLM.Bench.Runner do
          exports_dir,
          log_dir,
          quiet?,
+         stream_logs?,
          progress_every,
          failure_tail_lines,
          variant_path,
@@ -122,21 +127,12 @@ defmodule RLM.Bench.Runner do
 
     command = mix_rlm_command(context_path, export_path, query, export_debug)
 
-    {output, exit_code} =
-      System.cmd(
-        "sh",
-        ["-lc", command],
-        cd: File.cwd!(),
-        stderr_to_stdout: true,
-        env: env
-      )
+    {exit_code, output_bytes} = run_mix_command(command, env, log_path, stream_logs?)
 
     duration_ms =
       System.monotonic_time()
       |> Kernel.-(started_at_native)
       |> System.convert_time_unit(:native, :millisecond)
-
-    File.write!(log_path, output)
 
     {metrics, metric_error} =
       case Metrics.from_export(export_path, required_min_dispatches) do
@@ -154,7 +150,7 @@ defmodule RLM.Bench.Runner do
       duration_ms: duration_ms,
       export_path: export_path,
       log_path: log_path,
-      output_bytes: byte_size(output),
+      output_bytes: output_bytes,
       metric_error: metric_error
     }
 
@@ -246,9 +242,68 @@ defmodule RLM.Bench.Runner do
     "cat #{shell_escape(context_path)} | mix rlm --single-turn --export-logs-path #{shell_escape(export_path)}#{debug_flag} #{shell_escape(query)}"
   end
 
+  defp run_mix_command(command, env, log_path, false) do
+    {output, exit_code} =
+      System.cmd(
+        "sh",
+        ["-lc", command],
+        cd: File.cwd!(),
+        stderr_to_stdout: true,
+        env: env
+      )
+
+    File.write!(log_path, output)
+    {exit_code, byte_size(output)}
+  end
+
+  defp run_mix_command(command, env, log_path, true) do
+    File.mkdir_p!(Path.dirname(log_path))
+    {:ok, log_io} = File.open(log_path, [:write, :binary])
+
+    env_vars =
+      Enum.map(env, fn {key, value} ->
+        {String.to_charlist(key), String.to_charlist(value)}
+      end)
+
+    port =
+      Port.open({:spawn_executable, shell_path!()}, [
+        :binary,
+        :exit_status,
+        :stderr_to_stdout,
+        :use_stdio,
+        :hide,
+        {:cd, File.cwd!()},
+        {:env, env_vars},
+        {:args, [~c"-lc", String.to_charlist(command)]}
+      ])
+
+    result = stream_port_output(port, log_io, 0)
+    File.close(log_io)
+    result
+  end
+
+  defp stream_port_output(port, log_io, total_bytes) do
+    receive do
+      {^port, {:data, chunk}} ->
+        IO.binwrite(chunk)
+        IO.binwrite(log_io, chunk)
+        stream_port_output(port, log_io, total_bytes + byte_size(chunk))
+
+      {^port, {:exit_status, exit_code}} ->
+        {exit_code, total_bytes}
+    end
+  end
+
   defp shell_escape(value) when is_binary(value) do
     escaped = String.replace(value, "'", "'\"'\"'")
     "'#{escaped}'"
+  end
+
+  defp shell_path! do
+    case System.find_executable("sh") do
+      nil -> raise "Unable to locate `sh` executable for streamed runner mode"
+      path -> path
+    end
   end
 
   defp read_tail_lines(path, n) when n <= 0, do: File.read!(path)

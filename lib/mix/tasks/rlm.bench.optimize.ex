@@ -19,6 +19,7 @@ defmodule Mix.Tasks.Rlm.Bench.Optimize do
           cycles: :integer,
           quiet_runs: :boolean,
           loud_runs: :boolean,
+          stream_logs: :boolean,
           inspect_logs: :boolean,
           no_inspect_logs: :boolean
         ]
@@ -53,6 +54,7 @@ defmodule Mix.Tasks.Rlm.Bench.Optimize do
            profile_path: Keyword.get(opts, :profile, Paths.default_profile_path()),
            cycles: Keyword.get(opts, :cycles, 6),
            quiet_runs: quiet_runs,
+           stream_logs: Keyword.get(opts, :stream_logs, false),
            inspect_logs: inspect_logs
          ) do
       {:ok, result} ->
