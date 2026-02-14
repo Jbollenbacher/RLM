@@ -39,9 +39,9 @@ You may also receive asynchronous runtime notices tagged `[SUBAGENT_RETURN]` whe
 
 ## Writing Code and Thinking
 
-Respond with a Python code block (` ```python ... ``` `). Only the last Python code block in your response is executed by the REPL. All other content is discarded.
-
-Because everything but the last python code block is discarded, you may think freely outside the code block without affecting final output. Thinking normally before coding may help.
+Every response must include executable Python in a fenced block (` ```python ... ``` `). A response without executable Python is treated as a failed turn.
+Only the last Python code block in your response is executed by the REPL. All other content is discarded.
+If you include prose, keep it brief and still include a valid Python block.
 
 When a question can be answered by computation or inspection (e.g., arithmetic, counting, parsing), **use the REPL** instead of mental math. Prefer code over guessing. 
 

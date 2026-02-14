@@ -199,11 +199,36 @@ defmodule Mix.Tasks.Rlm do
     target = normalize_export_path(path)
     File.mkdir_p!(Path.dirname(target))
 
-    export = RLM.Observability.Export.full_agent_logs(include_system: true, debug: debug)
-    File.write!(target, Jason.encode!(export, pretty: true))
+    case full_agent_logs_export(debug) do
+      {:ok, export} ->
+        File.write!(target, Jason.encode!(export, pretty: true))
+        IO.puts(:stderr, "Saved agent logs to #{target}")
 
-    IO.puts(:stderr, "Saved agent logs to #{target}")
+      {:error, reason} ->
+        IO.puts(
+          :stderr,
+          "Warning: failed to export agent logs to #{target}: #{format_export_error(reason)}"
+        )
+    end
   end
+
+  defp full_agent_logs_export(debug) do
+    with {:module, _} <- Code.ensure_loaded(RLM.Observability.Export),
+         true <- function_exported?(RLM.Observability.Export, :full_agent_logs, 1) do
+      {:ok, RLM.Observability.Export.full_agent_logs(include_system: true, debug: debug)}
+    else
+      {:error, reason} -> {:error, reason}
+      false -> {:error, :full_agent_logs_not_exported}
+      other -> {:error, other}
+    end
+  rescue
+    error -> {:error, Exception.message(error)}
+  catch
+    kind, value -> {:error, {kind, value}}
+  end
+
+  defp format_export_error(reason) when is_binary(reason), do: reason
+  defp format_export_error(reason), do: inspect(reason)
 
   defp normalize_export_path(path) do
     expanded = Path.expand(path)

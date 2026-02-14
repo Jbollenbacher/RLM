@@ -123,6 +123,7 @@ defmodule RLM.Bench.Runner do
 
     env =
       []
+      |> put_env("MIX_NO_COMPILE", "1")
       |> put_env("RLM_SUBAGENT_ASSESSMENT_SAMPLE_RATE", to_string(sample_rate))
       |> put_env_if("RLM_SYSTEM_PROMPT_PATH", variant_path)
 

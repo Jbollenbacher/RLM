@@ -28,6 +28,7 @@ defmodule RLM.Prompt do
   ```python
   assess_dispatch("satisfied", reason="clear and specific rationale")
   ```
+  Any response without executable Python code will be treated as a failed check-in.
   Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
   Do not set `final_answer` again.
   Do not redo prior work.]
@@ -38,6 +39,7 @@ defmodule RLM.Prompt do
   Your final answer has been staged and will be returned automatically.
   In this turn, respond with exactly one Python code block and only record missing assessments with:
   `assess_lm_query(child_agent_id, "satisfied"|"dissatisfied", reason="...")`.
+  Any response without executable Python code will be treated as a failed check-in.
   Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
   Do not set `final_answer` again.
   Do not redo prior work.
