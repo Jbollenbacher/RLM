@@ -334,14 +334,17 @@ defmodule RLM.Subagent.Broker do
                 updated_at: now
             }
 
-            {put_job(acc_state, key, updated_job), acc_updates ++ [update]}
+            {put_job(acc_state, key, updated_job), [update | acc_updates]}
           else
             {acc_state, acc_updates}
           end
         end
       end)
 
-    updates = Enum.sort_by(updates, &{Map.get(&1, :child_agent_id), Map.get(&1, :state)})
+    updates =
+      updates
+      |> Enum.reverse()
+      |> Enum.sort_by(&{Map.get(&1, :child_agent_id), Map.get(&1, :state)})
     {:reply, updates, state}
   end
 

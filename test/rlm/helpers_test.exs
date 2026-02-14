@@ -22,4 +22,14 @@ defmodule RLM.HelpersTest do
       assert {:error, _reason} = RLM.Helpers.latest_principal_message(context)
     end
   end
+
+  describe "timestamped_filename/2" do
+    test "builds a timestamped filename with extension" do
+      filename = RLM.Helpers.timestamped_filename("rlm_agent_logs")
+
+      assert String.starts_with?(filename, "rlm_agent_logs_")
+      assert String.ends_with?(filename, ".json")
+      assert filename =~ ~r/^rlm_agent_logs_[0-9T:\-+Z]+\.json$/
+    end
+  end
 end

@@ -172,7 +172,7 @@ defmodule Mix.Tasks.Rlm do
         path
 
       enabled? ->
-        default_export_filename()
+        RLM.Helpers.timestamped_filename("rlm_agent_logs")
 
       true ->
         nil
@@ -208,24 +208,14 @@ defmodule Mix.Tasks.Rlm do
 
     cond do
       File.dir?(expanded) ->
-        Path.join(expanded, default_export_filename())
+        Path.join(expanded, RLM.Helpers.timestamped_filename("rlm_agent_logs"))
 
       String.ends_with?(path, "/") ->
-        Path.join(expanded, default_export_filename())
+        Path.join(expanded, RLM.Helpers.timestamped_filename("rlm_agent_logs"))
 
       true ->
         expanded
     end
-  end
-
-  defp default_export_filename do
-    timestamp =
-      DateTime.utc_now()
-      |> DateTime.truncate(:second)
-      |> DateTime.to_iso8601()
-      |> String.replace(":", "-")
-
-    "rlm_agent_logs_#{timestamp}.json"
   end
 
   defp wait_forever do

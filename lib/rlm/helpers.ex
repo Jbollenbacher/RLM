@@ -39,4 +39,16 @@ defmodule RLM.Helpers do
 
   def format_value(value),
     do: inspect(value, pretty: true, limit: :infinity, printable_limit: :infinity)
+
+  @spec timestamped_filename(String.t(), String.t()) :: String.t()
+  def timestamped_filename(prefix, extension \\ "json")
+      when is_binary(prefix) and prefix != "" and is_binary(extension) and extension != "" do
+    timestamp =
+      DateTime.utc_now()
+      |> DateTime.truncate(:second)
+      |> DateTime.to_iso8601()
+      |> String.replace(":", "-")
+
+    "#{prefix}_#{timestamp}.#{extension}"
+  end
 end

@@ -1,5 +1,3 @@
-Under construction
-
 # RLM — Recursive Language Model
 
 An Elixir-hosted implementation of the Recursive Language Model pattern. The RLM addresses LLM context window limitations by keeping input data out of the context entirely — instead, the LLM writes Python code in a persistent REPL to inspect, chunk, and recursively process data through sub-LLM calls.

@@ -64,7 +64,7 @@ defmodule RLM.Observability.Router do
     export =
       RLM.Observability.Export.full_agent_logs(include_system: include_system, debug: debug)
 
-    filename = export_filename()
+    filename = RLM.Helpers.timestamped_filename("rlm_agent_logs")
     body = Jason.encode!(export, pretty: true)
 
     conn
@@ -133,16 +133,6 @@ defmodule RLM.Observability.Router do
 
   defp parse_bool(value) when value in [true, "true", "1", "yes", "on"], do: true
   defp parse_bool(_value), do: false
-
-  defp export_filename do
-    timestamp =
-      DateTime.utc_now()
-      |> DateTime.truncate(:second)
-      |> DateTime.to_iso8601()
-      |> String.replace(":", "-")
-
-    "rlm_agent_logs_#{timestamp}.json"
-  end
 
   defp maybe_strip_system_prompt(nil, _include_system), do: nil
   defp maybe_strip_system_prompt(snapshot, true), do: snapshot

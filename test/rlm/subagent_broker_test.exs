@@ -1,6 +1,8 @@
 defmodule RLM.SubagentBrokerTest do
   use ExUnit.Case
 
+  import RLM.TestSupport, only: [assert_eventually: 1]
+
   test "dispatch returns child id and job eventually completes" do
     parent_id = "parent_#{System.unique_integer([:positive, :monotonic])}"
 
@@ -234,16 +236,4 @@ defmodule RLM.SubagentBrokerTest do
     assert [] == RLM.Subagent.Broker.drain_pending_assessments(parent_id)
   end
 
-  defp assert_eventually(fun, attempts \\ 60)
-
-  defp assert_eventually(fun, attempts) when attempts > 0 do
-    if fun.() do
-      :ok
-    else
-      Process.sleep(20)
-      assert_eventually(fun, attempts - 1)
-    end
-  end
-
-  defp assert_eventually(_fun, 0), do: flunk("condition did not become true in time")
 end

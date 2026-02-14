@@ -1,6 +1,6 @@
 defmodule RLM.Loop do
   require Logger
-  alias RLM.Loop.Finalization
+  alias RLM.Loop.{Compaction, EvalFeedback, Finalization, SubagentReturn}
 
   @doc false
   def run_turn(history, bindings, model, config, depth, agent_id) do
@@ -21,7 +21,7 @@ defmodule RLM.Loop do
           Logger.info("[RLM] depth=#{depth} iteration=#{iteration}")
 
           {history, bindings} = maybe_compact(history, bindings, model, config, agent_id)
-          history = maybe_inject_subagent_return_messages(history, config, agent_id)
+          history = SubagentReturn.maybe_inject(history, config, agent_id)
 
           snapshot_iteration(agent_id, iteration, history, config, bindings)
 
@@ -53,70 +53,7 @@ defmodule RLM.Loop do
 
   @doc false
   def maybe_compact(history, bindings, model, config, agent_id \\ nil) do
-    estimated_tokens = estimate_tokens(history)
-    threshold = trunc(context_window_tokens_for_model(config, model) * 0.8)
-
-    if estimated_tokens > threshold and length(history) > 1 do
-      [system_msg | rest] = history
-      serialized = serialize_history(rest)
-
-      existing = Keyword.get(bindings, :compacted_history, "")
-
-      combined =
-        if existing == "" do
-          serialized
-        else
-          existing <> "\n\n---\n\n" <> serialized
-        end
-
-      new_bindings = Keyword.put(bindings, :compacted_history, combined)
-
-      preview =
-        RLM.Truncate.truncate(combined,
-          head: config.truncation_head,
-          tail: config.truncation_tail
-        )
-
-      addendum = RLM.Prompt.compaction_addendum(preview)
-      new_history = [system_msg, %{role: :user, content: addendum}]
-
-      Logger.info(
-        "[RLM] Compacted history: #{estimated_tokens} tokens -> #{estimate_tokens(new_history)} tokens"
-      )
-
-      RLM.Observability.compaction(
-        agent_id,
-        estimated_tokens,
-        estimate_tokens(new_history),
-        String.length(preview)
-      )
-
-      {new_history, new_bindings}
-    else
-      {history, bindings}
-    end
-  end
-
-  defp estimate_tokens(history) do
-    total_chars =
-      Enum.reduce(history, 0, fn msg, acc ->
-        content = Map.get(msg, :content, "")
-        acc + String.length(to_string(content))
-      end)
-
-    div(total_chars, 4)
-  end
-
-  defp context_window_tokens_for_model(config, model) do
-    if config.model_large == config.model_small do
-      max(config.context_window_tokens_large, config.context_window_tokens_small)
-    else
-      cond do
-        model == config.model_large -> config.context_window_tokens_large
-        model == config.model_small -> config.context_window_tokens_small
-        true -> config.context_window_tokens_large
-      end
-    end
+    Compaction.maybe_compact(history, bindings, model, config, agent_id)
   end
 
   defp last_user_nudge?(history) do
@@ -126,80 +63,7 @@ defmodule RLM.Loop do
     end
   end
 
-  defp serialize_history(messages) do
-    Enum.map_join(messages, "\n\n---\n\n", fn msg ->
-      role = Map.get(msg, :role, "unknown")
-      content = Map.get(msg, :content, "")
-      "Role: #{role}\n#{to_string(content)}"
-    end)
-  end
-
   defp normalize_answer(term), do: RLM.Helpers.format_value(term)
-
-  defp maybe_inject_subagent_return_messages(history, _config, nil), do: history
-
-  defp maybe_inject_subagent_return_messages(history, config, agent_id) do
-    case RLM.Subagent.Broker.drain_updates(agent_id) do
-      [] ->
-        history
-
-      updates ->
-        message = subagent_return_message(updates, config)
-        history ++ [%{role: :user, content: message}]
-    end
-  end
-
-  defp subagent_return_message(updates, config) do
-    body =
-      updates
-      |> Enum.map_join("\n\n---\n\n", fn update ->
-        id = Map.get(update, :child_agent_id)
-        status = Map.get(update, :state)
-        preview = preview_subagent_payload(Map.get(update, :payload), config)
-
-        completion_note =
-          if Map.get(update, :completion_update), do: "completion update", else: nil
-
-        assessment_note =
-          cond do
-            Map.get(update, :assessment_required) and not Map.get(update, :assessment_recorded) ->
-              "assessment required: call assess_lm_query(\"#{id}\", \"satisfied\"|\"dissatisfied\", reason=\"...\")"
-
-            Map.get(update, :assessment_update) ->
-              "assessment reminder: update now requires assessment after polling"
-
-            true ->
-              nil
-          end
-
-        [
-          "child_agent_id: #{id}",
-          "status: #{status}",
-          "preview:",
-          preview,
-          completion_note,
-          assessment_note
-        ]
-        |> Enum.reject(&is_nil/1)
-        |> Enum.join("\n")
-      end)
-
-    "[SUBAGENT_RETURN]\n" <> body
-  end
-
-  defp preview_subagent_payload(payload, config) do
-    text =
-      if is_binary(payload) do
-        payload
-      else
-        inspect(payload, pretty: true, limit: 20, printable_limit: 4000)
-      end
-
-    RLM.Truncate.truncate(text,
-      head: min(400, config.truncation_head),
-      tail: min(400, config.truncation_tail)
-    )
-  end
 
   defp snapshot_iteration(agent_id, iteration, history, config, bindings) do
     compacted? = Keyword.get(bindings, :compacted_history, "") != ""
@@ -258,10 +122,10 @@ defmodule RLM.Loop do
         history = append_agent_history(history, response)
 
         {status, full_stdout, full_stderr, result, new_bindings} =
-          evaluate_code(code, bindings, config, agent_id, iteration)
+          EvalFeedback.evaluate_code(code, bindings, config, agent_id, iteration)
 
         {history, new_bindings} =
-          apply_eval_feedback(
+          EvalFeedback.apply(
             history,
             new_bindings,
             status,
@@ -300,61 +164,6 @@ defmodule RLM.Loop do
   defp append_agent_history(history, response) do
     clean_response = strip_leading_agent_tags(response)
     history ++ [%{role: :assistant, content: clean_response}]
-  end
-
-  defp evaluate_code(code, bindings, config, agent_id, iteration) do
-    case RLM.Eval.eval(code, bindings,
-           timeout: config.eval_timeout,
-           lm_query_timeout: config.lm_query_timeout,
-           subagent_assessment_sample_rate: config.subagent_assessment_sample_rate,
-           agent_id: agent_id,
-           iteration: iteration
-         ) do
-      {:ok, stdout, stderr, result, new_bindings} ->
-        {:ok, stdout, stderr, result, new_bindings}
-
-      {:error, stdout, stderr, original_bindings} ->
-        {:error, stdout, stderr, nil, original_bindings}
-    end
-  end
-
-  defp apply_eval_feedback(history, bindings, status, result, full_stdout, full_stderr, config) do
-    truncated_stdout =
-      RLM.Truncate.truncate(full_stdout,
-        head: config.truncation_head,
-        tail: config.truncation_tail
-      )
-
-    truncated_stderr =
-      RLM.Truncate.truncate(full_stderr,
-        head: config.truncation_head,
-        tail: config.truncation_tail
-      )
-
-    final_answer_value = Keyword.get(bindings, :final_answer)
-
-    suppress_result? =
-      status == :ok and final_answer_value != nil and result == final_answer_value
-
-    result_for_output = if suppress_result?, do: nil, else: result
-
-    feedback =
-      RLM.Prompt.format_eval_output(truncated_stdout, truncated_stderr, status, result_for_output)
-
-    history =
-      if suppress_result? and truncated_stdout == "" and truncated_stderr == "" do
-        history
-      else
-        history ++ [%{role: :user, content: feedback}]
-      end
-
-    bindings =
-      bindings
-      |> Keyword.put(:last_stdout, full_stdout)
-      |> Keyword.put(:last_stderr, full_stderr)
-      |> Keyword.put(:last_result, result)
-
-    {history, bindings}
   end
 
   defp continue_after_eval(

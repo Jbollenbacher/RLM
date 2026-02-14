@@ -162,124 +162,97 @@ defmodule RLM.Loop.Finalization do
     dispatch_assessment_required = dispatch_assessment_required?(bindings)
     deadline = Keyword.get(bindings, :dispatch_assessment_checkin_deadline_iteration, iteration)
 
-    case Keyword.get(bindings, :pending_final_answer) do
-      {:ok, _answer} = pending ->
-        cond do
-          valid_dispatch_assessment?(dispatch_assessment) ->
-            Logger.info(
-              "[RLM] depth=#{depth} iteration=#{iteration} finalizing staged answer after dispatch assessment"
-            )
+    pending = Keyword.get(bindings, :pending_final_answer)
 
-            bindings =
-              bindings
-              |> finalize_dispatch_assessment(
-                parent_agent_id,
-                agent_id,
-                :ok,
-                dispatch_assessment,
-                dispatch_assessment_required
-              )
-              |> clear_pending_dispatch_finalization()
-
-            {:halt, pending, bindings}
-
-          iteration > deadline ->
-            Logger.warning(
-              "[RLM] depth=#{depth} iteration=#{iteration} dispatch assessment still missing after check-in window"
-            )
-
-            bindings =
-              bindings
-              |> finalize_dispatch_assessment(
-                parent_agent_id,
-                agent_id,
-                :ok,
-                nil,
-                dispatch_assessment_required
-              )
-              |> clear_pending_dispatch_finalization()
-
-            {:halt, pending, bindings}
-
-          true ->
-            {:continue, bindings}
-        end
-
-      {:error, _reason} = pending ->
-        cond do
-          valid_dispatch_assessment?(dispatch_assessment) ->
-            Logger.info(
-              "[RLM] depth=#{depth} iteration=#{iteration} finalizing staged failure after dispatch assessment"
-            )
-
-            bindings =
-              bindings
-              |> finalize_dispatch_assessment(
-                parent_agent_id,
-                agent_id,
-                :error,
-                dispatch_assessment,
-                dispatch_assessment_required
-              )
-              |> clear_pending_dispatch_finalization()
-
-            {:halt, pending, bindings}
-
-          iteration > deadline ->
-            Logger.warning(
-              "[RLM] depth=#{depth} iteration=#{iteration} dispatch assessment still missing after check-in window"
-            )
-
-            bindings =
-              bindings
-              |> finalize_dispatch_assessment(
-                parent_agent_id,
-                agent_id,
-                :error,
-                nil,
-                dispatch_assessment_required
-              )
-              |> clear_pending_dispatch_finalization()
-
-            {:halt, pending, bindings}
-
-          true ->
-            {:continue, bindings}
-        end
-
-      _ ->
-        {:continue, bindings}
+    if pending_answer?(pending) do
+      resolve_dispatch_pending(
+        bindings,
+        pending,
+        depth,
+        iteration,
+        deadline,
+        parent_agent_id,
+        agent_id,
+        dispatch_assessment,
+        dispatch_assessment_required
+      )
+    else
+      {:continue, bindings}
     end
   end
 
   defp resolve_pending_subagent_finalization(bindings, depth, iteration, agent_id) do
     deadline = Keyword.get(bindings, :subagent_assessment_checkin_deadline_iteration, iteration)
     tracked_child_ids = Keyword.get(bindings, :pending_subagent_assessment_child_ids, [])
+    pending = Keyword.get(bindings, :pending_subagent_final_answer)
 
-    case Keyword.get(bindings, :pending_subagent_final_answer) do
-      {:ok, _answer} = pending ->
-        resolve_subagent_pending(
-          bindings,
-          pending,
-          depth,
-          iteration,
-          deadline,
-          agent_id,
-          tracked_child_ids
+    if pending_answer?(pending) do
+      resolve_subagent_pending(
+        bindings,
+        pending,
+        depth,
+        iteration,
+        deadline,
+        agent_id,
+        tracked_child_ids
+      )
+    else
+      {:continue, bindings}
+    end
+  end
+
+  defp resolve_dispatch_pending(
+         bindings,
+         pending,
+         depth,
+         iteration,
+         deadline,
+         parent_agent_id,
+         agent_id,
+         dispatch_assessment,
+         dispatch_assessment_required
+       ) do
+    final_status = pending_status_atom(pending)
+    status_label = pending_status_label(pending)
+
+    cond do
+      valid_dispatch_assessment?(dispatch_assessment) ->
+        Logger.info(
+          "[RLM] depth=#{depth} iteration=#{iteration} finalizing staged #{status_label} after dispatch assessment"
         )
 
-      {:error, _reason} = pending ->
-        resolve_subagent_pending(
-          bindings,
-          pending,
-          depth,
-          iteration,
-          deadline,
-          agent_id,
-          tracked_child_ids
+        bindings =
+          bindings
+          |> finalize_dispatch_assessment(
+            parent_agent_id,
+            agent_id,
+            final_status,
+            dispatch_assessment,
+            dispatch_assessment_required
+          )
+          |> clear_pending_dispatch_finalization()
+
+        {:halt, pending, bindings}
+
+      iteration > deadline ->
+        Logger.warning(
+          "[RLM] depth=#{depth} iteration=#{iteration} dispatch assessment still missing after check-in window"
         )
 
-      _ ->
+        bindings =
+          bindings
+          |> finalize_dispatch_assessment(
+            parent_agent_id,
+            agent_id,
+            final_status,
+            nil,
+            dispatch_assessment_required
+          )
+          |> clear_pending_dispatch_finalization()
+
+        {:halt, pending, bindings}
+
+      true ->
         {:continue, bindings}
     end
   end
@@ -319,6 +292,8 @@ defmodule RLM.Loop.Finalization do
 
   defp pending_status_label({:ok, _}), do: "answer"
   defp pending_status_label({:error, _}), do: "failure"
+  defp pending_status_atom({:ok, _}), do: :ok
+  defp pending_status_atom({:error, _}), do: :error
 
   defp clear_pending_dispatch_finalization(bindings) do
     bindings
@@ -384,28 +359,34 @@ defmodule RLM.Loop.Finalization do
   defp emit_subagent_assessment_missing(_agent_id, _tracked_child_ids), do: :ok
 
   defp pending_dispatch_checkin_turn?(bindings, iteration) do
-    case Keyword.get(bindings, :pending_final_answer) do
-      {:ok, _} ->
-        iteration <= Keyword.get(bindings, :dispatch_assessment_checkin_deadline_iteration, -1)
-
-      {:error, _} ->
-        iteration <= Keyword.get(bindings, :dispatch_assessment_checkin_deadline_iteration, -1)
-
-      _ ->
-        false
-    end
+    pending_checkin_turn_for(
+      bindings,
+      iteration,
+      :pending_final_answer,
+      :dispatch_assessment_checkin_deadline_iteration
+    )
   end
 
   defp pending_subagent_checkin_turn?(bindings, iteration) do
-    case Keyword.get(bindings, :pending_subagent_final_answer) do
-      {:ok, _} ->
-        iteration <= Keyword.get(bindings, :subagent_assessment_checkin_deadline_iteration, -1)
+    pending_checkin_turn_for(
+      bindings,
+      iteration,
+      :pending_subagent_final_answer,
+      :subagent_assessment_checkin_deadline_iteration
+    )
+  end
 
-      {:error, _} ->
-        iteration <= Keyword.get(bindings, :subagent_assessment_checkin_deadline_iteration, -1)
+  defp pending_checkin_turn_for(bindings, iteration, pending_key, deadline_key) do
+    pending = Keyword.get(bindings, pending_key)
 
-      _ ->
-        false
+    if pending_answer?(pending) do
+      iteration <= Keyword.get(bindings, deadline_key, -1)
+    else
+      false
     end
   end
+
+  defp pending_answer?({:ok, _}), do: true
+  defp pending_answer?({:error, _}), do: true
+  defp pending_answer?(_), do: false
 end
