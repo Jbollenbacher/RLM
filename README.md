@@ -97,6 +97,7 @@ Quick module overview:
 - `RLM.Survey` — Generic survey state + validation helpers
 - `RLM.Eval` — Pythonx-backed code evaluation with IO capture
 - `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, async `lm_query` with `poll_lm_query`/`await_lm_query`/`cancel_lm_query`, survey helpers `pending_surveys`/`answer_survey`/`answer_child_survey`, `assess_lm_query`/`assess_dispatch`, and optional workspace access helpers)
+- `RLM.Observability` — Telemetry helpers and survey event projection (including local eval-side survey answers)
 - `RLM.LLM` — OpenAI-compatible API client (via Req)
 - `RLM.Truncate` — Head+tail truncation to bound context size
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings
@@ -154,6 +155,7 @@ Quiet mode suppresses per-task subprocess output and writes logs to:
 
 Benchmark runs export debug/full event logs by default, and optimizer cycles can automatically inspect weak runs to surface failure patterns before the next prompt tweak.
 Benchmark task subprocesses run with `MIX_NO_COMPILE=1` to avoid repeated per-task compilation churn.
+Benchmark metrics also include survey-signal diagnostics (`survey_events_observed`, warnings, and `tasks_with_no_survey_events`) so silent zero-signal exports are visible.
 The benchmark champion variant (`bench/variants/champion_v1.md`) is kept aligned with the base runtime response contract in `priv/system_prompt.md`.
 
 Inspect a saved logfile tail without rerunning:

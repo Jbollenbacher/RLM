@@ -171,6 +171,7 @@ Web chat flow:
   - Captures stdout/stderr with `StringIO`.
   - Persists updated globals back into bindings (`:python_globals`).
   - Normalizes `final_answer` and survey answers from Python globals.
+  - Delegates local survey observability projection to `RLM.Observability.local_survey_answers/4`.
   - Enforces eval timeout and returns bindings unchanged on failure.
 
 ### 5.2 Bridge and Async Subagents
@@ -178,7 +179,8 @@ Web chat flow:
 - `lib/rlm/eval/bridge.ex`
   - File-based IPC bridge in temp dir:
     - Python writes request JSON.
-    - Elixir bridge loop handles dispatch/poll/cancel/assess.
+    - Elixir bridge loop handles dispatch/poll/cancel/answer_survey.
+    - `assess` remains as compatibility alias to `answer_survey` for `subagent_usefulness`.
     - Bridge writes response JSON atomically.
   - Chooses sampled required-survey gates probabilistically via configured sample rate.
 
@@ -258,6 +260,7 @@ Web chat flow:
 - `lib/rlm/observability.ex`
   - Starts observability supervisor and telemetry handlers.
   - Gates all event emission behind a persistent enabled flag.
+  - Provides survey event helpers (`survey_requested`, `survey_answered`, `survey_missing`) plus local eval answer projection.
 
 ### 8.2 Process Topology
 
