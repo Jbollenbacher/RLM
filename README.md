@@ -82,6 +82,12 @@ mix rlm --web --web-port 4005
 
 ## Architecture
 
+For a full repo walkthrough, see the architecture map:
+
+- [`docs/repo-architecture-map.md`](docs/repo-architecture-map.md)
+
+Quick module overview:
+
 - `RLM.Loop` — Main orchestration loop (REPL driver)
 - `RLM.Eval` — Pythonx-backed code evaluation with IO capture
 - `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, async `lm_query` with `poll_lm_query`/`await_lm_query`/`cancel_lm_query`, `assess_lm_query`, and optional workspace access helpers)
