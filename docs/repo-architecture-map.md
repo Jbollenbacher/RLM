@@ -24,11 +24,11 @@ RLM (Recursive Language Model) is an Elixir-hosted recursive agent loop:
 - `lib/`
   - Core runtime: loop, eval, LLM transport, recursion, observability, CLI task.
 - `priv/`
-  - System prompt, Python prelude helpers, embedded web UI HTML/JS/CSS.
+  - System prompt, Python prelude helpers, observability UI HTML shell, and split observability JS app parts under `priv/observability_ui/`.
 - `test/`
   - Unit + contract tests, with integration tests behind `RLM_RUN_INTEGRATION`.
 - `docs/`
-  - Supporting design/assessment docs (currently includes CLI worker assessment notes).
+  - Architecture/reference docs (includes this architecture map plus supporting assessment notes).
 - `workspace/`
   - Example/project-local workspace content used by workspace helper flows.
 - `_build/`, `deps/`
@@ -58,15 +58,17 @@ RLM (Recursive Language Model) is an Elixir-hosted recursive agent loop:
     - interactive loop
     - workspace mode (`--workspace`, optional `--read-only`)
     - web mode (`--web`, `--web-port`)
-    - export logs mode (`--export-logs`)
+    - export logs mode (`--export-logs`, `--export-logs-path`)
+    - logger controls (`--verbose`, `--debug`)
   - Reads stdin context and query positional args.
 
 ### 3.4 Web UI/HTTP
 
 - `lib/rlm/observability/router.ex`
   - Serves UI (`/`) and JSON endpoints:
-    - agents/context/events
-    - full-log export
+    - agent list/detail/context (`/api/agents`, `/api/agents/:id`, `/api/agents/:id/context`)
+    - event feed (`/api/events`) with normal/debug filtering support
+    - full-log export (`/api/export/full_logs`)
     - single-session chat (`/api/chat`, `/api/chat/stop`)
 
 ### 3.5 Execution Flows (At a Glance)
@@ -79,7 +81,7 @@ Single-turn CLI flow:
 4. `RLM.Loop.run_turn/6` iterative cycle
 5. `RLM.LLM.chat/4` -> `RLM.Eval.eval/3` -> feedback loop
 6. finalize via `final_answer` contract (or error)
-7. print result and optionally export logs (`--export-logs`)
+7. print result and optionally export logs (`--export-logs` or `--export-logs-path`)
 
 Web chat flow:
 
@@ -106,7 +108,12 @@ Web chat flow:
 ### 4.2 Main Loop
 
 - `lib/rlm/loop.ex`
-  - Iterative turn engine (`run_turn` -> `iterate`).
+  - Iterative turn engine (`run_turn` -> `iterate`) and high-level control flow.
+  - Delegates focused responsibilities to:
+    - `lib/rlm/loop/compaction.ex` (`RLM.Loop.Compaction`)
+    - `lib/rlm/loop/subagent_return.ex` (`RLM.Loop.SubagentReturn`)
+    - `lib/rlm/loop/eval_feedback.ex` (`RLM.Loop.EvalFeedback`)
+    - `lib/rlm/loop/finalization.ex` (`RLM.Loop.Finalization`)
   - Per iteration:
     1. Resolve staged/finalization gates (`RLM.Loop.Finalization`).
     2. Optional compaction if estimated context size exceeds threshold.
@@ -202,7 +209,9 @@ Web chat flow:
 
 - `lib/rlm/subagent/broker.ex`
   - Tracks job state keyed by `{parent_id, child_id}`.
+  - Maintains parent-to-child index (`by_parent`) for efficient parent-scoped scans and drains.
   - Supports dispatch/poll/cancel/assess and batched update drains.
+  - Enforces configurable per-parent job limits (`subagent_broker_max_jobs_per_parent`, default `2000`).
   - Assessment semantics:
     - required only if sampled + polled + terminal
   - Push update semantics:
@@ -221,7 +230,7 @@ Web chat flow:
   - Behavioral contract for the recursive coding agent.
 - `lib/rlm/truncate.ex`
   - Generic head/tail truncator used across REPL output, previews, and snapshots.
-- Compaction behavior (`RLM.Loop.maybe_compact/5`)
+- Compaction behavior (`RLM.Loop.Compaction.maybe_compact/5`, surfaced through `RLM.Loop.maybe_compact/5`)
   - Serializes old history to `compacted_history` binding.
   - Replaces active history with system + compacted-history addendum prompt.
 
@@ -248,6 +257,8 @@ Web chat flow:
   - Handles telemetry event families (`agent`, `iteration`, `llm`, `eval`, compaction, lm_query, assessments).
 - `lib/rlm/observability/tracker.ex`
   - Converts events to persistent model updates and snapshots.
+- `lib/rlm/observability/log_view.ex`
+  - Defines normal vs debug event visibility policy for API/UI/export consumers.
 - `lib/rlm/observability/store.ex`
   - ETS-backed in-memory store for:
     - agents
@@ -261,19 +272,24 @@ Web chat flow:
 - `lib/rlm/observability/chat.ex`
   - Single-session chat state machine for web console.
   - Supports interrupt/stop and status emissions.
+- `lib/rlm/observability/ui.ex`
+  - Builds embedded UI HTML by injecting a bundled JS payload from sorted `priv/observability_ui/*.js`.
 - `priv/observability_ui.html`
-  - Embedded client with:
+  - Embedded UI shell with:
     - chat panel
     - agent tree
     - events feed + detail pane
     - context window view
     - full log preview/export
     - resizable panel splitters
+- `priv/observability_ui/`
+  - Split client JS sources (`00_layout.js`, `10_agents_events.js`, `20_chat.js`, `30_export.js`, `40_init.js`) concatenated by `RLM.Observability.UI`.
 
 ### 8.5 Export Model
 
 - `lib/rlm/observability/export.ex`
   - Builds nested `rlm_agent_log_v1` document.
+  - Applies normal/debug log filtering policy via `RLM.Observability.LogView`.
   - Embeds child agents beneath parent `lm_query` timeline events.
   - Stores context windows as delta-encoded transcript progression.
 

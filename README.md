@@ -73,6 +73,9 @@ mix rlm --web --web-port 4005
 
 - Chat panel and observability panels shown side-by-side
 - Context window, agent tree, and event feed visible during execution
+- Toggle system-prompt visibility in context snapshots
+- Toggle normal/debug event views in the event feed
+- Copy current context and preview/export full nested agent logs
 - Resizable panel boundaries for layout control
 - `Enter` sends chat, `Shift+Enter` inserts a newline
 - `Stop` interrupts the current generation and records a principal interruption note
@@ -87,9 +90,14 @@ For a full repo walkthrough, see the architecture map:
 Quick module overview:
 
 - `RLM.Loop` — Main orchestration loop (REPL driver)
+- `RLM.Loop.Compaction` — Context-window threshold compaction and compacted-history binding updates
+- `RLM.Loop.SubagentReturn` — `[SUBAGENT_RETURN]` message construction/injection from broker updates
+- `RLM.Loop.EvalFeedback` — Eval invocation + `[REPL][AGENT]` feedback shaping
+- `RLM.Loop.Finalization` — Dispatch/subagent assessment staging and check-in finalization gates
 - `RLM.Eval` — Pythonx-backed code evaluation with IO capture
 - `RLM.Eval` prelude — Helper functions available to eval'd code (`grep`, async `lm_query` with `poll_lm_query`/`await_lm_query`/`cancel_lm_query`, `assess_lm_query`, and optional workspace access helpers)
 - `RLM.LLM` — OpenAI-compatible API client (via Req)
 - `RLM.Truncate` — Head+tail truncation to bound context size
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings
+- `RLM.Observability.Router`/`RLM.Observability.UI` — Embedded web observability API + HTML shell with JS parts loaded from `priv/observability_ui/*.js`
 - `Mix.Tasks.Rlm` — CLI entrypoint (single-turn and interactive sessions)
