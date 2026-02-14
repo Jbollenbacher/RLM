@@ -682,31 +682,24 @@ def await_lm_query(child_agent_id, timeout_ms=None, poll_interval_ms=50):
             time.sleep(poll_interval / 1000.0)
             continue
 
-        if kind == "ok":
+        def _warn_assessment():
             if state.get("assessment_required") and not state.get("assessment_recorded"):
                 _rlm_stderr.write(
                     f"[RLM] assessment required for {child_agent_id}: "
                     "call assess_lm_query(child_agent_id, verdict, reason='...') "
                     "with verdict='satisfied' or 'dissatisfied'.\n"
                 )
+
+        if kind == "ok":
+            _warn_assessment()
             return state.get("payload")
 
         if kind == "error":
-            if state.get("assessment_required") and not state.get("assessment_recorded"):
-                _rlm_stderr.write(
-                    f"[RLM] assessment required for {child_agent_id}: "
-                    "call assess_lm_query(child_agent_id, verdict, reason='...') "
-                    "with verdict='satisfied' or 'dissatisfied'.\n"
-                )
+            _warn_assessment()
             raise _RLMSubagentCrash(str(state.get("payload", "Subagent failed")))
 
         if kind == "cancelled":
-            if state.get("assessment_required") and not state.get("assessment_recorded"):
-                _rlm_stderr.write(
-                    f"[RLM] assessment required for {child_agent_id}: "
-                    "call assess_lm_query(child_agent_id, verdict, reason='...') "
-                    "with verdict='satisfied' or 'dissatisfied'.\n"
-                )
+            _warn_assessment()
             raise _RLMSubagentCrash(str(state.get("payload", "Subagent cancelled")))
 
         raise _RLMHelperError(f"Unknown lm_query state for {child_agent_id}: {state}")

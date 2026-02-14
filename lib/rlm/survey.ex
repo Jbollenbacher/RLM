@@ -287,54 +287,7 @@ defmodule RLM.Survey do
     end
   end
 
-  defp validate_response(response, schema) when is_map(schema) do
-    case {Map.get(schema, :type), Map.get(schema, :values)} do
-      {:enum, values} when is_list(values) ->
-        validate_enum(response, values)
-
-      _ ->
-        {:ok, response}
-    end
-  end
-
   defp validate_response(response, _schema), do: {:ok, response}
-
-  defp validate_enum(response, values) do
-    normalized_values =
-      Enum.reduce(values, %{}, fn value, acc ->
-        key =
-          value
-          |> to_string()
-          |> String.trim()
-          |> String.downcase()
-
-        Map.put(acc, key, value)
-      end)
-
-    candidate =
-      cond do
-        is_atom(response) ->
-          response
-          |> Atom.to_string()
-          |> String.trim()
-          |> String.downcase()
-
-        is_binary(response) ->
-          response
-          |> String.trim()
-          |> String.downcase()
-
-        true ->
-          nil
-      end
-
-    if candidate && Map.has_key?(normalized_values, candidate) do
-      {:ok, Map.fetch!(normalized_values, candidate)}
-    else
-      {:error,
-       "Invalid survey response. Expected one of #{Enum.join(Map.keys(normalized_values), ", ")}."}
-    end
-  end
 
   defp normalize_scope(scope) when scope in [:agent, :child], do: scope
   defp normalize_scope(scope) when is_binary(scope), do: normalize_scope(String.to_atom(scope))

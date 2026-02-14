@@ -17,7 +17,7 @@ defmodule RLM.Eval.Bridge do
         sample_rate =
           opts
           |> Keyword.get(:subagent_assessment_sample_rate, @default_sample_rate)
-          |> normalize_sample_rate()
+          |> RLM.SampleRate.normalize()
 
         base_dir = Path.join(System.tmp_dir!(), RLM.Helpers.unique_id("rlm_python_bridge"))
         requests_dir = Path.join(base_dir, "requests")
@@ -295,13 +295,11 @@ defmodule RLM.Eval.Bridge do
       {:ok, state} ->
         {resolved_response, resolved_reason} = resolved_answer(state, survey_id, response, reason)
 
-        maybe_emit_survey_answer(
-          parent_agent_id,
-          child_agent_id,
-          survey_id,
-          resolved_response,
-          resolved_reason
-        )
+        RLM.Observability.survey_answered(parent_agent_id, survey_id, resolved_response, %{
+          child_agent_id: child_agent_id,
+          reason: resolved_reason,
+          scope: :child
+        })
 
         ok_payload(state)
 
@@ -321,36 +319,6 @@ defmodule RLM.Eval.Bridge do
 
     resolved_reason = if survey_response, do: Map.get(survey_response, :reason), else: reason
     {resolved_response, resolved_reason}
-  end
-
-  defp maybe_emit_survey_answer(
-         parent_agent_id,
-         child_agent_id,
-         survey_id,
-         resolved_response,
-         resolved_reason
-       ) do
-    emit_generic_child_survey_answer(
-      parent_agent_id,
-      child_agent_id,
-      survey_id,
-      resolved_response,
-      resolved_reason
-    )
-  end
-
-  defp emit_generic_child_survey_answer(
-         parent_agent_id,
-         child_agent_id,
-         survey_id,
-         response,
-         reason
-       ) do
-    RLM.Observability.survey_answered(parent_agent_id, survey_id, response, %{
-      child_agent_id: child_agent_id,
-      reason: reason,
-      scope: :child
-    })
   end
 
   defp ok_payload(value), do: %{"status" => "ok", "payload" => Codec.json_term(value)}
@@ -411,23 +379,7 @@ defmodule RLM.Eval.Bridge do
   end
 
   defp sample_assessment?(rate) do
-    normalized = normalize_sample_rate(rate)
+    normalized = RLM.SampleRate.normalize(rate)
     normalized > 0 and :rand.uniform() <= normalized
   end
-
-  defp normalize_sample_rate(rate) when is_float(rate), do: clamp_sample_rate(rate)
-  defp normalize_sample_rate(rate) when is_integer(rate), do: clamp_sample_rate(rate * 1.0)
-
-  defp normalize_sample_rate(rate) when is_binary(rate) do
-    case Float.parse(rate) do
-      {parsed, _} -> clamp_sample_rate(parsed)
-      _ -> @default_sample_rate
-    end
-  end
-
-  defp normalize_sample_rate(_), do: @default_sample_rate
-
-  defp clamp_sample_rate(rate) when rate < 0.0, do: 0.0
-  defp clamp_sample_rate(rate) when rate > 1.0, do: 1.0
-  defp clamp_sample_rate(rate), do: rate
 end

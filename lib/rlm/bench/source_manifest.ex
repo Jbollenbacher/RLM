@@ -1,19 +1,14 @@
 defmodule RLM.Bench.SourceManifest do
   @moduledoc false
 
+  alias RLM.Bench.Util
+
   @required_source_keys ~w(id url type)
 
   def load(path) when is_binary(path) do
-    with {:ok, body} <- File.read(path),
-         {:ok, decoded} <- Jason.decode(body),
+    with {:ok, decoded} <- Util.load_json(path, "source manifest"),
          :ok <- validate(decoded) do
       {:ok, decoded}
-    else
-      {:error, %Jason.DecodeError{} = error} ->
-        {:error, "Invalid JSON in source manifest #{path}: #{Exception.message(error)}"}
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

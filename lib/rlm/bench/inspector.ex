@@ -1,6 +1,8 @@
 defmodule RLM.Bench.Inspector do
   @moduledoc false
 
+  alias RLM.Bench.Util
+
   def inspect_run(run, opts \\ []) do
     results = Map.get(run, :results, [])
     run_dir = Map.get(run, :run_dir)
@@ -30,7 +32,7 @@ defmodule RLM.Bench.Inspector do
       }
 
       out_path = Path.join(run_dir, "inspection.json")
-      File.write!(out_path, Jason.encode!(stringify(out), pretty: true))
+      File.write!(out_path, Jason.encode!(Util.stringify_keys(out), pretty: true))
 
       Map.put(out, :path, out_path)
     else
@@ -46,9 +48,9 @@ defmodule RLM.Bench.Inspector do
 
   defp investigate?(summary) do
     failed = Map.get(summary, :failed_count, 0)
-    objective = as_float(Map.get(summary, :objective, 0.0))
-    satisfied = as_float(Map.get(summary, :overall_satisfied_rate, 0.0))
-    coverage = as_float(Map.get(summary, :delegation_coverage, 0.0))
+    objective = Util.to_float(Map.get(summary, :objective, 0.0))
+    satisfied = Util.to_float(Map.get(summary, :overall_satisfied_rate, 0.0))
+    coverage = Util.to_float(Map.get(summary, :delegation_coverage, 0.0))
 
     failed > 0 or objective < 0.45 or satisfied < 0.65 or coverage < 0.55
   end
@@ -201,22 +203,4 @@ defmodule RLM.Bench.Inspector do
 
   defp tail_lines(body, _n), do: body
 
-  defp stringify(map) when is_map(map) do
-    Enum.into(map, %{}, fn {k, v} -> {to_string(k), stringify(v)} end)
-  end
-
-  defp stringify(list) when is_list(list), do: Enum.map(list, &stringify/1)
-  defp stringify(other), do: other
-
-  defp as_float(v) when is_float(v), do: v
-  defp as_float(v) when is_integer(v), do: v * 1.0
-
-  defp as_float(v) when is_binary(v) do
-    case Float.parse(v) do
-      {num, _} -> num
-      _ -> 0.0
-    end
-  end
-
-  defp as_float(_), do: 0.0
 end

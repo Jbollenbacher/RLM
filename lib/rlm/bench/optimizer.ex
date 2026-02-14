@@ -6,6 +6,7 @@ defmodule RLM.Bench.Optimizer do
   alias RLM.Bench.Paths
   alias RLM.Bench.Profile
   alias RLM.Bench.Runner
+  alias RLM.Bench.Util
 
   def run(opts \\ []) do
     tasks_path = Keyword.fetch!(opts, :tasks_path)
@@ -159,7 +160,7 @@ defmodule RLM.Bench.Optimizer do
       )
 
     report =
-      AB.decide(stringify_map_keys(run_a.summary), stringify_map_keys(run_b.summary), thresholds)
+      AB.decide(Util.stringify_keys(run_a.summary), Util.stringify_keys(run_b.summary), thresholds)
 
     promote? = report.decision == "promote"
 
@@ -212,8 +213,8 @@ defmodule RLM.Bench.Optimizer do
     top_bucket = top_bucket(counts)
     primary_nudge = nudge_for_bucket(top_bucket)
     inspection_nudges = Map.get(inspection, :recommendations, [])
-    completion_rate = get_number(run_summary, :task_completion_rate, 1.0)
-    failed_count = trunc(get_number(run_summary, :failed_count, 0.0))
+    completion_rate = Util.get_number(run_summary, :task_completion_rate, 1.0)
+    failed_count = trunc(Util.get_number(run_summary, :failed_count, 0.0))
     completion_nudge = completion_nudge(completion_rate, failed_count)
 
     patch =
@@ -300,34 +301,6 @@ defmodule RLM.Bench.Optimizer do
     nudges
     |> Enum.map(&"- #{&1}")
     |> Enum.join("\n")
-  end
-
-  defp stringify_map_keys(map) when is_map(map) do
-    Enum.into(map, %{}, fn {k, v} -> {to_string(k), stringify_map_keys(v)} end)
-  end
-
-  defp stringify_map_keys(list) when is_list(list), do: Enum.map(list, &stringify_map_keys/1)
-  defp stringify_map_keys(other), do: other
-
-  defp get_number(map, key, default) when is_map(map) do
-    value = Map.get(map, key, Map.get(map, to_string(key), default))
-
-    cond do
-      is_float(value) ->
-        value
-
-      is_integer(value) ->
-        value * 1.0
-
-      is_binary(value) ->
-        case Float.parse(value) do
-          {num, _} -> num
-          _ -> default
-        end
-
-      true ->
-        default
-    end
   end
 
   defp normalize_variant(:a), do: "a"

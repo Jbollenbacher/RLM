@@ -23,7 +23,7 @@ defmodule Mix.Tasks.Rlm.Bench.Optimize do
         ]
       )
 
-    raise_on_invalid_flags!(invalid)
+    RLM.Bench.CLI.raise_on_invalid_flags!(invalid)
     Mix.Task.run("app.start")
 
     tasks_path = Keyword.get(opts, :tasks, Paths.default_pool_path())
@@ -35,19 +35,8 @@ defmodule Mix.Tasks.Rlm.Bench.Optimize do
         Path.join([Paths.bench_root(), "variants", "champion_v1.md"])
       )
 
-    quiet_runs =
-      cond do
-        Keyword.get(opts, :loud_runs, false) -> false
-        Keyword.has_key?(opts, :quiet_runs) -> Keyword.get(opts, :quiet_runs)
-        true -> true
-      end
-
-    inspect_logs =
-      cond do
-        Keyword.get(opts, :no_inspect_logs, false) -> false
-        Keyword.has_key?(opts, :inspect_logs) -> Keyword.get(opts, :inspect_logs)
-        true -> true
-      end
+    quiet_runs = RLM.Bench.CLI.resolve_bool_flag(opts, :quiet_runs, :loud_runs)
+    inspect_logs = RLM.Bench.CLI.resolve_bool_flag(opts, :inspect_logs, :no_inspect_logs)
 
     case Optimizer.run(
            tasks_path: tasks_path,
@@ -68,17 +57,4 @@ defmodule Mix.Tasks.Rlm.Bench.Optimize do
     end
   end
 
-  defp raise_on_invalid_flags!([]), do: :ok
-
-  defp raise_on_invalid_flags!(invalid) do
-    invalid_list =
-      invalid
-      |> Enum.map(&format_invalid_option/1)
-      |> Enum.join(", ")
-
-    Mix.raise("Unknown or invalid options: #{invalid_list}")
-  end
-
-  defp format_invalid_option({flag, _value}), do: to_string(flag)
-  defp format_invalid_option(flag), do: to_string(flag)
 end

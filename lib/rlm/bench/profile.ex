@@ -2,20 +2,10 @@ defmodule RLM.Bench.Profile do
   @moduledoc false
 
   alias RLM.Bench.Paths
+  alias RLM.Bench.Util
 
   def load(path \\ nil) do
-    path = path || Paths.default_profile_path()
-
-    with {:ok, body} <- File.read(path),
-         {:ok, decoded} <- Jason.decode(body) do
-      {:ok, decoded}
-    else
-      {:error, %Jason.DecodeError{} = error} ->
-        {:error, "Invalid profile JSON #{path}: #{Exception.message(error)}"}
-
-      {:error, reason} ->
-        {:error, "Failed to load profile #{path}: #{inspect(reason)}"}
-    end
+    Util.load_json(path || Paths.default_profile_path(), "profile")
   end
 
   def get(profile, path, default) when is_list(path) do

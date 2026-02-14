@@ -21,7 +21,7 @@ defmodule Mix.Tasks.Rlm.Bench.Ab do
         ]
       )
 
-    raise_on_invalid_flags!(invalid)
+    RLM.Bench.CLI.raise_on_invalid_flags!(invalid)
     Mix.Task.run("app.start")
 
     summary_a = resolve_summary_path(opts, :summary_a, :run_a)
@@ -43,20 +43,6 @@ defmodule Mix.Tasks.Rlm.Bench.Ab do
         Mix.raise(reason)
     end
   end
-
-  defp raise_on_invalid_flags!([]), do: :ok
-
-  defp raise_on_invalid_flags!(invalid) do
-    invalid_list =
-      invalid
-      |> Enum.map(&format_invalid_option/1)
-      |> Enum.join(", ")
-
-    Mix.raise("Unknown or invalid options: #{invalid_list}")
-  end
-
-  defp format_invalid_option({flag, _value}), do: to_string(flag)
-  defp format_invalid_option(flag), do: to_string(flag)
 
   defp resolve_summary_path(opts, summary_key, run_key) do
     case Keyword.get(opts, summary_key) do

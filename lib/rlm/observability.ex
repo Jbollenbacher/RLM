@@ -167,26 +167,6 @@ defmodule RLM.Observability do
     end)
   end
 
-  @spec subagent_assessment(String.t(), String.t(), atom(), String.t()) :: :ok
-  def subagent_assessment(parent_agent_id, child_agent_id, verdict, reason) do
-    subagent_usefulness_answer(parent_agent_id, child_agent_id, verdict, reason)
-  end
-
-  @spec subagent_assessment_missing(String.t(), String.t(), atom()) :: :ok
-  def subagent_assessment_missing(parent_agent_id, child_agent_id, status) do
-    subagent_usefulness_missing(parent_agent_id, child_agent_id, status)
-  end
-
-  @spec dispatch_assessment(String.t(), String.t(), atom(), String.t()) :: :ok
-  def dispatch_assessment(parent_agent_id, child_agent_id, verdict, reason) do
-    dispatch_quality_answer(parent_agent_id, child_agent_id, verdict, reason)
-  end
-
-  @spec dispatch_assessment_missing(String.t(), String.t(), atom()) :: :ok
-  def dispatch_assessment_missing(parent_agent_id, child_agent_id, status) do
-    dispatch_quality_missing(parent_agent_id, child_agent_id, status)
-  end
-
   @spec survey_requested(String.t(), String.t(), map()) :: :ok
   def survey_requested(agent_id, survey_id, payload \\ %{})
       when is_binary(agent_id) and is_binary(survey_id) and is_map(payload) do

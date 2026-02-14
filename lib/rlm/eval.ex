@@ -236,24 +236,8 @@ defmodule RLM.Eval do
   defp default_subagent_assessment_sample_rate do
     :rlm
     |> Application.get_env(:subagent_assessment_sample_rate, 0.25)
-    |> normalize_sample_rate()
+    |> RLM.SampleRate.normalize()
   end
-
-  defp normalize_sample_rate(rate) when is_float(rate), do: clamp_sample_rate(rate)
-  defp normalize_sample_rate(rate) when is_integer(rate), do: clamp_sample_rate(rate * 1.0)
-
-  defp normalize_sample_rate(rate) when is_binary(rate) do
-    case Float.parse(rate) do
-      {parsed, _} -> clamp_sample_rate(parsed)
-      _ -> 0.25
-    end
-  end
-
-  defp normalize_sample_rate(_), do: 0.25
-
-  defp clamp_sample_rate(rate) when rate < 0.0, do: 0.0
-  defp clamp_sample_rate(rate) when rate > 1.0, do: 1.0
-  defp clamp_sample_rate(rate), do: rate
 
   defp python_prelude do
     File.read!(Path.join(:code.priv_dir(:rlm), "python_prelude.py"))

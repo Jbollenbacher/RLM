@@ -2,6 +2,7 @@ defmodule RLM.Bench.AB do
   @moduledoc false
 
   alias RLM.Bench.Paths
+  alias RLM.Bench.Util
 
   @default_thresholds %{
     min_assessment_volume: 40,
@@ -55,15 +56,15 @@ defmodule RLM.Bench.AB do
   end
 
   defp build_report(a, b, thresholds) do
-    objective_a = num(a, "objective")
-    objective_b = num(b, "objective")
+    objective_a = Util.get_number(a, "objective")
+    objective_b = Util.get_number(b, "objective")
     objective_delta = objective_b - objective_a
 
-    coverage_a = num(a, "delegation_coverage")
-    coverage_b = num(b, "delegation_coverage")
+    coverage_a = Util.get_number(a, "delegation_coverage")
+    coverage_b = Util.get_number(b, "delegation_coverage")
     coverage_delta = coverage_b - coverage_a
 
-    assessment_volume_b = trunc(num(b, "assessment_volume"))
+    assessment_volume_b = trunc(Util.get_number(b, "assessment_volume"))
 
     decision =
       cond do
@@ -87,10 +88,10 @@ defmodule RLM.Bench.AB do
         run_id: Map.get(a, "run_id"),
         objective: objective_a,
         delegation_coverage: coverage_a,
-        assessment_volume: trunc(num(a, "assessment_volume")),
-        task_completion_rate: num(a, "task_completion_rate"),
-        failed_count: trunc(num(a, "failed_count")),
-        overall_satisfied_rate: num(a, "overall_satisfied_rate"),
+        assessment_volume: trunc(Util.get_number(a, "assessment_volume")),
+        task_completion_rate: Util.get_number(a, "task_completion_rate"),
+        failed_count: trunc(Util.get_number(a, "failed_count")),
+        overall_satisfied_rate: Util.get_number(a, "overall_satisfied_rate"),
         reasons: Map.get(a, "reasons", %{})
       },
       run_b: %{
@@ -98,17 +99,17 @@ defmodule RLM.Bench.AB do
         objective: objective_b,
         delegation_coverage: coverage_b,
         assessment_volume: assessment_volume_b,
-        task_completion_rate: num(b, "task_completion_rate"),
-        failed_count: trunc(num(b, "failed_count")),
-        overall_satisfied_rate: num(b, "overall_satisfied_rate"),
+        task_completion_rate: Util.get_number(b, "task_completion_rate"),
+        failed_count: trunc(Util.get_number(b, "failed_count")),
+        overall_satisfied_rate: Util.get_number(b, "overall_satisfied_rate"),
         reasons: Map.get(b, "reasons", %{})
       },
       deltas: %{
         objective: objective_delta,
         delegation_coverage: coverage_delta,
-        task_completion_rate: num(b, "task_completion_rate") - num(a, "task_completion_rate"),
+        task_completion_rate: Util.get_number(b, "task_completion_rate") - Util.get_number(a, "task_completion_rate"),
         overall_satisfied_rate:
-          num(b, "overall_satisfied_rate") - num(a, "overall_satisfied_rate")
+          Util.get_number(b, "overall_satisfied_rate") - Util.get_number(a, "overall_satisfied_rate")
       },
       generated_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
     }
@@ -144,24 +145,4 @@ defmodule RLM.Bench.AB do
     |> Enum.join("\n")
   end
 
-  defp num(map, key) do
-    value = Map.get(map, key, 0)
-
-    cond do
-      is_float(value) ->
-        value
-
-      is_integer(value) ->
-        value * 1.0
-
-      is_binary(value) ->
-        case Float.parse(value) do
-          {parsed, _} -> parsed
-          _ -> 0.0
-        end
-
-      true ->
-        0.0
-    end
-  end
 end
