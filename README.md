@@ -49,6 +49,11 @@ mix rlm "What is 2 + 2?"
 # Single turn with piped input
 cat document.txt | mix rlm "Summarize this document"
 
+# Single turn + save full agent logs export JSON (headless, no web UI)
+mix rlm --single-turn --export-logs "Analyze this file"
+# Optional custom export path (file or directory)
+mix rlm --single-turn --export-logs-path ./logs "Analyze this file"
+
 # Workspace access (model can list/read/edit/create files under the workspace root)
 mix rlm --workspace /path/to/project
 

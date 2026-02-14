@@ -956,6 +956,17 @@
               if (payload.context_chars != null) lines.push(`context_chars: ${payload.context_chars}`);
               lines.push("request_tail (delta context):");
               lines.push(indentLines(formatRequestTail(payload), "  "));
+            } else if (eventType === "dispatch_assessment") {
+              lines.push("");
+              lines.push("Dispatch Quality Assessment");
+              if (payload.child_agent_id != null) lines.push(`child_agent_id: ${payload.child_agent_id}`);
+              if (payload.verdict != null) lines.push(`verdict: ${payload.verdict}`);
+              if (payload.reason != null) lines.push(`reason: ${payload.reason}`);
+            } else if (eventType === "dispatch_assessment_missing") {
+              lines.push("");
+              lines.push("Dispatch Quality Assessment Missing");
+              if (payload.child_agent_id != null) lines.push(`child_agent_id: ${payload.child_agent_id}`);
+              if (payload.status != null) lines.push(`child_status: ${payload.status}`);
             }
 
             lines.push("");

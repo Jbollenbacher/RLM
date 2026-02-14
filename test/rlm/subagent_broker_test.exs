@@ -204,6 +204,36 @@ defmodule RLM.SubagentBrokerTest do
            ] = RLM.Subagent.Broker.drain_updates(parent_id)
   end
 
+  test "drain_pending_assessments returns sampled missing assessments once" do
+    parent_id = "parent_#{System.unique_integer([:positive, :monotonic])}"
+
+    lm_query_fn = fn _text, _opts ->
+      {:ok, "done"}
+    end
+
+    assert {:ok, child_id} =
+             RLM.Subagent.Broker.dispatch(
+               parent_id,
+               "task",
+               [model_size: :small],
+               lm_query_fn,
+               timeout_ms: 1_000,
+               assessment_sampled: true
+             )
+
+    assert_eventually(fn ->
+      match?(
+        {:ok, %{state: :ok, assessment_required: true}},
+        RLM.Subagent.Broker.poll(parent_id, child_id)
+      )
+    end)
+
+    assert [%{child_agent_id: ^child_id, status: :ok}] =
+             RLM.Subagent.Broker.drain_pending_assessments(parent_id)
+
+    assert [] == RLM.Subagent.Broker.drain_pending_assessments(parent_id)
+  end
+
   defp assert_eventually(fun, attempts \\ 60)
 
   defp assert_eventually(fun, attempts) when attempts > 0 do

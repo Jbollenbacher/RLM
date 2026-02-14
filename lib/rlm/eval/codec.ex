@@ -50,6 +50,27 @@ defmodule RLM.Eval.Codec do
   # Pythonic default: assigning any non-nil value to final_answer means success.
   def normalize_final_answer(other), do: {:ok, other}
 
+  def normalize_dispatch_assessment(nil), do: nil
+
+  def normalize_dispatch_assessment(%{"verdict" => verdict} = assessment) do
+    normalize_dispatch_assessment(%{
+      verdict: verdict,
+      reason: Map.get(assessment, "reason")
+    })
+  end
+
+  def normalize_dispatch_assessment(%{verdict: verdict} = assessment) do
+    case verdict_to_atom(verdict) do
+      {:ok, parsed_verdict} ->
+        %{verdict: parsed_verdict, reason: to_string(Map.get(assessment, :reason, ""))}
+
+      :error ->
+        nil
+    end
+  end
+
+  def normalize_dispatch_assessment(_), do: nil
+
   def decode_captured_output(python_globals) when is_map(python_globals) do
     stdout = python_globals |> Map.get("_rlm_stdout_buffer") |> decode_output_chunks()
     stderr = python_globals |> Map.get("_rlm_stderr_buffer") |> decode_output_chunks()
@@ -100,4 +121,20 @@ defmodule RLM.Eval.Codec do
   rescue
     _ -> inspect(chunk)
   end
+
+  defp verdict_to_atom(verdict) when is_atom(verdict) do
+    verdict
+    |> Atom.to_string()
+    |> verdict_to_atom()
+  end
+
+  defp verdict_to_atom(verdict) when is_binary(verdict) do
+    case verdict |> String.trim() |> String.downcase() do
+      "satisfied" -> {:ok, :satisfied}
+      "dissatisfied" -> {:ok, :dissatisfied}
+      _ -> :error
+    end
+  end
+
+  defp verdict_to_atom(_), do: :error
 end

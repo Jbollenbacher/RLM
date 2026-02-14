@@ -1,5 +1,4 @@
 defmodule RLM.Prompt do
-  @system_prompt_text File.read!(Path.join(:code.priv_dir(:rlm), "system_prompt.md"))
   @how_to_respond_note """
   [SYSTEM]
   You can only communicate with the Principal by setting `final_answer` in a ```python``` code block. Proceed according to the system prompt.
@@ -17,9 +16,30 @@ defmodule RLM.Prompt do
   [REPL][AGENT]
   [Invalid final_answer format. Set `final_answer` directly for success (e.g. `final_answer = "done"`), or use `final_answer = fail("reason")` for failure.]
   """
+  @invalid_dispatch_assessment_nudge """
+  [REPL][AGENT]
+  [assess_dispatch(...) is only processed in the same step where you set `final_answer`. Re-run this in your final commit block.]
+  """
+  @dispatch_assessment_checkin_nudge """
+  [REPL][AGENT]
+  [Dispatch quality assessment is required for this sampled run.
+  Your final answer has been staged and will be returned automatically.
+  In this turn, call `assess_dispatch("satisfied"|"dissatisfied", reason="...")`.
+  Do not redo prior work.]
+  """
+  @subagent_assessment_checkin_nudge_prefix """
+  [REPL][AGENT]
+  [Subagent assessments are required before finalizing.
+  Your final answer has been staged and will be returned automatically.
+  In this turn, assess each pending sampled subagent with:
+  `assess_lm_query(child_agent_id, "satisfied"|"dissatisfied", reason="...")`.
+  Do not redo prior work.
+  """
 
   @spec system_prompt() :: String.t()
-  def system_prompt, do: @system_prompt_text
+  def system_prompt do
+    File.read!(Path.join(:code.priv_dir(:rlm), "system_prompt.md"))
+  end
 
   @spec initial_user_message(String.t(), keyword()) :: String.t()
   def initial_user_message(context, opts \\ []) do
@@ -76,6 +96,25 @@ defmodule RLM.Prompt do
   @spec invalid_final_answer_nudge() :: String.t()
   def invalid_final_answer_nudge, do: @invalid_final_answer_nudge
 
+  @spec invalid_dispatch_assessment_nudge() :: String.t()
+  def invalid_dispatch_assessment_nudge, do: @invalid_dispatch_assessment_nudge
+
+  @spec dispatch_assessment_checkin_nudge() :: String.t()
+  def dispatch_assessment_checkin_nudge, do: @dispatch_assessment_checkin_nudge
+
+  @spec subagent_assessment_checkin_nudge([String.t()]) :: String.t()
+  def subagent_assessment_checkin_nudge(child_ids) when is_list(child_ids) do
+    pending =
+      child_ids
+      |> Enum.map(&to_string/1)
+      |> Enum.uniq()
+      |> Enum.join(", ")
+
+    @subagent_assessment_checkin_nudge_prefix <>
+      "\nPending child_agent_id values: " <>
+      if(pending == "", do: "(none captured)", else: pending) <> "]"
+  end
+
   @spec compaction_addendum(String.t()) :: String.t()
   def compaction_addendum(preview) do
     """
@@ -128,9 +167,9 @@ defmodule RLM.Prompt do
   defp workspace_note(opts) do
     if Keyword.get(opts, :workspace_available, false) do
       if Keyword.get(opts, :workspace_read_only, false) do
-        "[SYSTEM]\nWorkspace access is read-only. Use the python helper functions ls() and read_file() with relative paths.\n\n"
+        "[SYSTEM]\nWorkspace access is read-only. Use helper functions ls() and read_file() in ```python code blocks.\n\n"
       else
-        "[SYSTEM]\nWorkspace access is read-write. Use the python helper functions ls(), read_file(), edit_file(), and create_file() with relative paths.\n\n"
+        "[SYSTEM]\nWorkspace access is read-write. Use helper functions ls(), read_file(), edit_file(), and create_file() ```python code blocks.\n\n"
       end
     else
       ""
