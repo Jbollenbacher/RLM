@@ -5,7 +5,7 @@ defmodule RLM.Bench.TaskBuilder do
   alias RLM.Bench.Paths
   alias RLM.Bench.Profile
 
-  @families [
+  @default_families [
     "cross_section_compare",
     "constraint_extraction_matrix",
     "contradiction_hunt",
@@ -13,23 +13,27 @@ defmodule RLM.Bench.TaskBuilder do
     "evidence_linking"
   ]
 
-  @segment_size 12_000
-  @segment_overlap 800
+  @default_segment_size 12_000
+  @default_segment_overlap 800
+  @default_wrapper_path Path.join(["bench", "templates", "task_wrapper.md"])
 
   def run(opts \\ []) do
     profile_path = Keyword.get(opts, :profile_path, Paths.default_profile_path())
     output_path = Keyword.get(opts, :output_path, Paths.default_pool_path())
 
     with {:ok, profile} <- Profile.load(profile_path),
+         {:ok, families} <- configured_families(profile),
+         {:ok, wrapper} <- load_wrapper(profile),
          {:ok, docs} <- load_documents() do
       target_count = Profile.get(profile, ["target_task_count"], 120)
       required_min_dispatches = Profile.get(profile, ["required_min_dispatches"], 2)
+      segment_size = Profile.get(profile, ["segment_size_chars"], @default_segment_size)
+      segment_overlap = Profile.get(profile, ["segment_overlap_chars"], @default_segment_overlap)
 
       context_dir = Paths.ensure_dir!(Paths.context_dir())
       Paths.ensure_dir!(Path.dirname(output_path))
 
-      wrapper = File.read!(Path.join([Paths.bench_root(), "templates", "task_wrapper.md"]))
-      family_instructions = load_family_instructions()
+      family_instructions = load_family_instructions(families)
 
       tasks =
         build_tasks(
@@ -38,7 +42,10 @@ defmodule RLM.Bench.TaskBuilder do
           required_min_dispatches,
           wrapper,
           family_instructions,
-          context_dir
+          context_dir,
+          families,
+          segment_size,
+          segment_overlap
         )
 
       JSONL.write!(output_path, tasks)
@@ -50,6 +57,28 @@ defmodule RLM.Bench.TaskBuilder do
          context_dir: context_dir,
          profile_path: profile_path
        }}
+    end
+  end
+
+  defp configured_families(profile) do
+    families = Profile.get(profile, ["families"], @default_families)
+
+    cond do
+      not is_list(families) ->
+        {:error, "Profile key `families` must be a list of family names."}
+
+      families == [] ->
+        {:error, "Profile key `families` must include at least one family."}
+
+      true ->
+        unknown = families -- @default_families
+
+        if unknown == [] do
+          {:ok, families}
+        else
+          {:error,
+           "Profile contains unknown family names: #{Enum.join(unknown, ", ")}. Supported: #{Enum.join(@default_families, ", ")}"}
+        end
     end
   end
 
@@ -81,8 +110,17 @@ defmodule RLM.Bench.TaskBuilder do
     end
   end
 
-  defp load_family_instructions do
-    Enum.into(@families, %{}, fn family ->
+  defp load_wrapper(profile) do
+    path = Profile.get(profile, ["task_wrapper_path"], @default_wrapper_path)
+
+    case File.read(path) do
+      {:ok, wrapper} -> {:ok, wrapper}
+      {:error, reason} -> {:error, "Failed to load wrapper template #{path}: #{inspect(reason)}"}
+    end
+  end
+
+  defp load_family_instructions(families) do
+    Enum.into(families, %{}, fn family ->
       path = Path.join([Paths.bench_root(), "templates", "family_#{family}.md"])
       instruction = File.read!(path) |> String.trim()
       {family, instruction}
@@ -95,14 +133,17 @@ defmodule RLM.Bench.TaskBuilder do
          required_min_dispatches,
          wrapper,
          family_instructions,
-         context_dir
+         context_dir,
+         families,
+         segment_size,
+         segment_overlap
        ) do
-    doc_segments = Enum.map(docs, &build_segments/1)
-    families = Stream.cycle(@families)
+    doc_segments = Enum.map(docs, &build_segments(&1, segment_size, segment_overlap))
+    families_stream = Stream.cycle(families)
     segments_stream = Stream.cycle(doc_segments)
 
     1..target_count
-    |> Enum.zip(families)
+    |> Enum.zip(families_stream)
     |> Enum.zip(segments_stream)
     |> Enum.map(fn {{task_index, family}, doc} ->
       segment_a = pick_segment(doc.segments, task_index)
@@ -148,8 +189,8 @@ defmodule RLM.Bench.TaskBuilder do
     end)
   end
 
-  defp build_segments(doc) do
-    segments = split_with_overlap(doc.text, @segment_size, @segment_overlap)
+  defp build_segments(doc, segment_size, segment_overlap) do
+    segments = split_with_overlap(doc.text, segment_size, segment_overlap)
     %{id: doc.id, path: doc.path, segments: segments}
   end
 

@@ -24,6 +24,14 @@ mix rlm.bench.pull
 mix rlm.bench.build --profile bench/profiles/optimize_v1.json
 ```
 
+Easy mode (faster, easier tasks, still delegation-required):
+
+```bash
+mix rlm.bench.build \
+  --profile bench/profiles/easy_v1.json \
+  --output bench_data/tasks/pool_easy_v1.jsonl
+```
+
 3. Run benchmark batch in quiet mode (recommended):
 
 ```bash
@@ -32,6 +40,29 @@ mix rlm.bench.run \
   --variant bench/variants/champion_v1.md \
   --limit 12 \
   --quiet
+```
+
+Easy-mode smoke run:
+
+```bash
+mix rlm.bench.run \
+  --tasks bench_data/tasks/pool_easy_v1.jsonl \
+  --variant bench/variants/champion_v1.md \
+  --limit 8 \
+  --quiet
+```
+
+Live streaming without context pollution:
+
+```bash
+mix rlm.bench.run \
+  --tasks bench_data/tasks/pool_easy_v1.jsonl \
+  --variant bench/variants/champion_v1.md \
+  --limit 8 \
+  --stream-logs \
+  > /tmp/rlm_bench_stream.log 2>&1
+
+tail -n 120 -f /tmp/rlm_bench_stream.log
 ```
 
 4. Compare two runs:
@@ -72,3 +103,16 @@ mix rlm.bench.logs --run-id <run_id> --task <task_id> --tail 120
 Use `--no-inspect-logs` to disable automatic log inspection.
 
 to inspect without polluting interactive context.
+
+For long optimization sessions, stream to a temp log and tail it in small chunks:
+
+```bash
+mix rlm.bench.optimize \
+  --tasks bench_data/tasks/pool_v1.jsonl \
+  --base-variant bench/variants/champion_v1.md \
+  --cycles 10 \
+  --stream-logs \
+  > /tmp/rlm_bench_optimize_stream.log 2>&1
+
+tail -n 120 -f /tmp/rlm_bench_optimize_stream.log
+```

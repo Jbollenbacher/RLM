@@ -1,4 +1,7 @@
 import json
+import builtins
+import io
+import os
 import re
 import sys
 import time
@@ -97,6 +100,8 @@ def latest_principal_message(context):
     return _rlm_unwrap(latest_principal_message_status(context), "latest_principal_message")
 
 def _rlm_workspace_root():
+    if _rlm_workspace_root_path is not None:
+        return _rlm_workspace_root_path
     root = _rlm_to_text(globals().get("workspace_root"))
     if not root:
         raise ValueError("workspace_root not set")
@@ -109,6 +114,215 @@ def _rlm_resolve_workspace_path(path):
     if target != root and root not in target.parents:
         raise ValueError("Path is outside workspace root")
     return root, target
+
+def _rlm_path_in_root(path, root):
+    return path == root or root in path.parents
+
+def _rlm_is_bridge_path(path):
+    return _rlm_bridge_root_path is not None and _rlm_path_in_root(path, _rlm_bridge_root_path)
+
+def _rlm_is_write_mode(mode):
+    text = "r" if mode is None else str(mode)
+    return any(flag in text for flag in ("w", "a", "x", "+"))
+
+def _rlm_runtime_roots():
+    roots = []
+
+    for prefix in (getattr(sys, "base_prefix", None), getattr(sys, "exec_prefix", None)):
+        if prefix:
+            try:
+                roots.append(Path(prefix).resolve())
+            except Exception:
+                pass
+
+    for entry in sys.path:
+        if not entry:
+            continue
+        try:
+            candidate = Path(entry)
+            if not candidate.is_absolute():
+                continue
+            resolved = candidate.resolve()
+        except Exception:
+            continue
+
+        if any(_rlm_path_in_root(resolved, root) for root in roots):
+            roots.append(resolved)
+
+    deduped = []
+    seen = set()
+    for root in roots:
+        key = str(root)
+        if key not in seen:
+            seen.add(key)
+            deduped.append(root)
+    return deduped
+
+_rlm_workspace_root_path = None
+_rlm_virtual_cwd = None
+_rlm_allowed_runtime_roots = []
+_rlm_bridge_root_path = None
+
+if not hasattr(builtins, "_rlm_original_open"):
+    builtins._rlm_original_open = builtins.open
+
+if not hasattr(io, "_rlm_original_open"):
+    io._rlm_original_open = io.open
+
+if not hasattr(os, "_rlm_original_walk"):
+    os._rlm_original_walk = os.walk
+if not hasattr(os, "_rlm_original_listdir"):
+    os._rlm_original_listdir = os.listdir
+if not hasattr(os, "_rlm_original_scandir"):
+    os._rlm_original_scandir = os.scandir
+if not hasattr(os, "_rlm_original_getcwd"):
+    os._rlm_original_getcwd = os.getcwd
+if not hasattr(os, "_rlm_original_chdir"):
+    os._rlm_original_chdir = os.chdir
+
+if not hasattr(Path, "_rlm_original_open"):
+    Path._rlm_original_open = Path.open
+if not hasattr(Path, "_rlm_original_cwd"):
+    Path._rlm_original_cwd = Path.cwd
+
+_rlm_original_open = builtins._rlm_original_open
+_rlm_original_io_open = io._rlm_original_open
+_rlm_original_os_walk = os._rlm_original_walk
+_rlm_original_os_listdir = os._rlm_original_listdir
+_rlm_original_os_scandir = os._rlm_original_scandir
+_rlm_original_os_getcwd = os._rlm_original_getcwd
+_rlm_original_os_chdir = os._rlm_original_chdir
+_rlm_original_path_open = Path._rlm_original_open
+_rlm_original_path_cwd = Path._rlm_original_cwd
+
+def _rlm_resolve_guarded_path(path, allow_runtime=False, allow_bridge=False):
+    if _rlm_workspace_root_path is None:
+        return Path(path).resolve()
+
+    text = _rlm_to_text(path)
+    candidate = Path(text)
+
+    if not candidate.is_absolute():
+        base = _rlm_virtual_cwd or _rlm_workspace_root_path
+        candidate = base / candidate
+
+    resolved = candidate.resolve()
+    if _rlm_path_in_root(resolved, _rlm_workspace_root_path):
+        return resolved
+
+    if allow_bridge and _rlm_bridge_root_path is not None and _rlm_path_in_root(resolved, _rlm_bridge_root_path):
+        return resolved
+
+    if allow_runtime and any(_rlm_path_in_root(resolved, root) for root in _rlm_allowed_runtime_roots):
+        return resolved
+
+    raise PermissionError("Path is outside workspace root")
+
+def _rlm_guarded_open(file, mode="r", *args, **kwargs):
+    if _rlm_workspace_root_path is None or isinstance(file, int):
+        return _rlm_original_open(file, mode, *args, **kwargs)
+
+    write_mode = _rlm_is_write_mode(mode)
+    target = _rlm_resolve_guarded_path(
+        file,
+        allow_runtime=(not write_mode),
+        allow_bridge=True
+    )
+
+    if write_mode and globals().get("workspace_read_only", False) and not _rlm_is_bridge_path(target):
+        raise PermissionError("Workspace is read-only")
+
+    return _rlm_original_open(str(target), mode, *args, **kwargs)
+
+def _rlm_guarded_os_walk(top, *args, **kwargs):
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_os_walk(top, *args, **kwargs)
+    target = _rlm_resolve_guarded_path(top, allow_runtime=False, allow_bridge=False)
+    return _rlm_original_os_walk(str(target), *args, **kwargs)
+
+def _rlm_guarded_os_listdir(path="."):
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_os_listdir(path)
+    target = _rlm_resolve_guarded_path(path, allow_runtime=False, allow_bridge=False)
+    return _rlm_original_os_listdir(str(target))
+
+def _rlm_guarded_os_scandir(path="."):
+    if _rlm_workspace_root_path is None or isinstance(path, int):
+        return _rlm_original_os_scandir(path)
+    target = _rlm_resolve_guarded_path(path, allow_runtime=False, allow_bridge=False)
+    return _rlm_original_os_scandir(str(target))
+
+def _rlm_guarded_os_getcwd():
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_os_getcwd()
+    return str(_rlm_virtual_cwd or _rlm_workspace_root_path)
+
+def _rlm_guarded_os_chdir(path):
+    global _rlm_virtual_cwd
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_os_chdir(path)
+    target = _rlm_resolve_guarded_path(path, allow_runtime=False, allow_bridge=False)
+    _rlm_virtual_cwd = target
+    return None
+
+def _rlm_guarded_path_open(self, *args, **kwargs):
+    mode = kwargs.get("mode")
+    if mode is None and len(args) > 0:
+        mode = args[0]
+    if mode is None:
+        mode = "r"
+
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_path_open(self, *args, **kwargs)
+
+    write_mode = _rlm_is_write_mode(mode)
+    target = _rlm_resolve_guarded_path(
+        self,
+        allow_runtime=(not write_mode),
+        allow_bridge=True
+    )
+
+    if write_mode and globals().get("workspace_read_only", False) and not _rlm_is_bridge_path(target):
+        raise PermissionError("Workspace is read-only")
+
+    return _rlm_original_open(str(target), *args, **kwargs)
+
+def _rlm_guarded_path_cwd():
+    if _rlm_workspace_root_path is None:
+        return _rlm_original_path_cwd()
+    return Path(str(_rlm_virtual_cwd or _rlm_workspace_root_path))
+
+def _rlm_install_workspace_guard():
+    global _rlm_workspace_root_path, _rlm_virtual_cwd, _rlm_allowed_runtime_roots, _rlm_bridge_root_path
+
+    root = _rlm_to_text(globals().get("workspace_root"))
+    if not root:
+        return
+
+    root_path = Path(root)
+    if not root_path.is_absolute():
+        root_path = Path(_rlm_original_os_getcwd()) / root_path
+
+    _rlm_workspace_root_path = root_path.resolve()
+    _rlm_virtual_cwd = _rlm_workspace_root_path
+    _rlm_allowed_runtime_roots = _rlm_runtime_roots()
+    bridge_root = _rlm_to_text(globals().get("_rlm_bridge_dir"))
+    _rlm_bridge_root_path = Path(bridge_root).resolve() if bridge_root else None
+    globals()["workspace_root"] = str(_rlm_workspace_root_path)
+
+    builtins.open = _rlm_guarded_open
+    io.open = _rlm_guarded_open
+
+    os.walk = _rlm_guarded_os_walk
+    os.listdir = _rlm_guarded_os_listdir
+    os.scandir = _rlm_guarded_os_scandir
+    os.getcwd = _rlm_guarded_os_getcwd
+    os.chdir = _rlm_guarded_os_chdir
+
+    Path.open = _rlm_guarded_path_open
+    Path.cwd = staticmethod(_rlm_guarded_path_cwd)
+
+_rlm_install_workspace_guard()
 
 def ls_status(path="."):
     try:
@@ -237,7 +451,7 @@ def fail(reason):
 
 def list_bindings():
     excluded = {
-        "__builtins__", "json", "re", "sys", "time", "Path",
+        "__builtins__", "builtins", "io", "json", "os", "re", "sys", "time", "Path",
         "grep",
         "latest_principal_message", "latest_principal_message_status",
         "ls", "ls_status",
@@ -267,8 +481,10 @@ def list_bindings():
 
 def _rlm_write_json_atomic(path, payload):
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload), encoding="utf-8")
-    tmp.replace(path)
+    data = json.dumps(payload)
+    with _rlm_original_open(str(tmp), "w", encoding="utf-8") as f:
+        f.write(data)
+    os.replace(str(tmp), str(path))
 
 class _RLMSubagentCrash(RuntimeError):
     pass
@@ -298,7 +514,8 @@ def _rlm_bridge_request(payload, timeout_ms=None):
         deadline = time.time() + (timeout_ms / 1000.0)
         while time.time() < deadline:
             if response_path.exists():
-                data = json.loads(response_path.read_text(encoding="utf-8"))
+                with _rlm_original_open(str(response_path), "r", encoding="utf-8") as f:
+                    data = json.load(f)
                 try:
                     response_path.unlink()
                 except Exception:

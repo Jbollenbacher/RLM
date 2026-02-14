@@ -25,6 +25,7 @@ defmodule RLM.Bench.Runner do
 
     run_dir = Paths.ensure_dir!(Path.join(Paths.runs_dir(), run_id))
     exports_dir = Paths.ensure_dir!(Path.join(run_dir, "exports"))
+    workspace_base_dir = Paths.ensure_dir!(Path.join(run_dir, "task_workspaces"))
 
     log_dir = resolve_log_dir(opts, run_dir)
 
@@ -46,6 +47,7 @@ defmodule RLM.Bench.Runner do
             index + 1,
             length(tasks),
             exports_dir,
+            workspace_base_dir,
             log_dir,
             quiet?,
             stream_logs?,
@@ -99,6 +101,7 @@ defmodule RLM.Bench.Runner do
          index,
          total,
          exports_dir,
+         workspace_base_dir,
          log_dir,
          quiet?,
          stream_logs?,
@@ -109,11 +112,12 @@ defmodule RLM.Bench.Runner do
          export_debug
        ) do
     task_id = Map.fetch!(task, "task_id")
-    query = Map.fetch!(task, "query")
+    query = benchmark_isolation_query(Map.fetch!(task, "query"))
     context_path = Map.fetch!(task, "context_path")
     required_min_dispatches = Map.get(task, "required_min_dispatches", 0)
 
     export_path = Path.join(exports_dir, "#{task_id}.json")
+    workspace_path = prepare_task_workspace(workspace_base_dir, task_id, context_path)
     log_path = Path.join(log_dir, "#{task_id}.log")
     meta_path = Path.join(log_dir, "#{task_id}.meta.json")
 
@@ -125,7 +129,7 @@ defmodule RLM.Bench.Runner do
     started_at_ms = System.system_time(:millisecond)
     started_at_native = System.monotonic_time()
 
-    command = mix_rlm_command(context_path, export_path, query, export_debug)
+    command = mix_rlm_command(context_path, export_path, query, export_debug, workspace_path)
 
     {exit_code, output_bytes} = run_mix_command(command, env, log_path, stream_logs?)
 
@@ -149,6 +153,7 @@ defmodule RLM.Bench.Runner do
       started_at_ms: started_at_ms,
       duration_ms: duration_ms,
       export_path: export_path,
+      workspace_path: workspace_path,
       log_path: log_path,
       output_bytes: output_bytes,
       metric_error: metric_error
@@ -183,6 +188,7 @@ defmodule RLM.Bench.Runner do
       exit_code: exit_code,
       duration_ms: duration_ms,
       export_path: export_path,
+      workspace_path: workspace_path,
       log_path: log_path,
       metrics: metrics
     }
@@ -197,6 +203,7 @@ defmodule RLM.Bench.Runner do
       exit_code: result.exit_code,
       duration_ms: result.duration_ms,
       export_path: result.export_path,
+      workspace_path: result.workspace_path,
       log_path: result.log_path,
       metrics: result.metrics
     }
@@ -236,10 +243,26 @@ defmodule RLM.Bench.Runner do
     end
   end
 
-  defp mix_rlm_command(context_path, export_path, query, export_debug) do
+  defp mix_rlm_command(context_path, export_path, query, export_debug, workspace_path) do
     debug_flag = if export_debug, do: " --export-logs-debug", else: ""
+    workspace_flags = " --workspace #{shell_escape(workspace_path)} --read-only"
 
-    "cat #{shell_escape(context_path)} | mix rlm --single-turn --export-logs-path #{shell_escape(export_path)}#{debug_flag} #{shell_escape(query)}"
+    "cat #{shell_escape(context_path)} | mix rlm --single-turn --export-logs-path #{shell_escape(export_path)}#{debug_flag}#{workspace_flags} #{shell_escape(query)}"
+  end
+
+  defp prepare_task_workspace(base_dir, task_id, context_path) do
+    workspace_dir = Paths.ensure_dir!(Path.join(base_dir, task_id))
+    target_path = Path.join(workspace_dir, Path.basename(context_path))
+    File.cp!(context_path, target_path)
+    workspace_dir
+  end
+
+  defp benchmark_isolation_query(query) do
+    query <>
+      "\n\nBenchmark isolation constraints:\n" <>
+      "1. Treat `context` as the primary source of truth for this task.\n" <>
+      "2. Do not scan repository files or local directories (e.g., no `os.walk('.')`, broad globbing, or arbitrary file reads).\n" <>
+      "3. If file access is truly required, use only workspace helper functions (`ls`, `read_file`) within the provided workspace root.\n"
   end
 
   defp run_mix_command(command, env, log_path, false) do

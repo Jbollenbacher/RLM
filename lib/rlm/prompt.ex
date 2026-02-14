@@ -24,15 +24,22 @@ defmodule RLM.Prompt do
   [REPL][AGENT]
   [Dispatch quality assessment is required for this sampled run.
   Your final answer has been staged and will be returned automatically.
-  In this turn, call `assess_dispatch("satisfied"|"dissatisfied", reason="...")`.
+  In this turn, respond with exactly one Python code block that only records the assessment:
+  ```python
+  assess_dispatch("satisfied", reason="clear and specific rationale")
+  ```
+  Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
+  Do not set `final_answer` again.
   Do not redo prior work.]
   """
   @subagent_assessment_checkin_nudge_prefix """
   [REPL][AGENT]
   [Subagent assessments are required before finalizing.
   Your final answer has been staged and will be returned automatically.
-  In this turn, assess each pending sampled subagent with:
+  In this turn, respond with exactly one Python code block and only record missing assessments with:
   `assess_lm_query(child_agent_id, "satisfied"|"dissatisfied", reason="...")`.
+  Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
+  Do not set `final_answer` again.
   Do not redo prior work.
   """
 

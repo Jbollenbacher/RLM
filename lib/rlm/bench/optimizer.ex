@@ -222,6 +222,10 @@ defmodule RLM.Bench.Optimizer do
         "Completion signal:",
         format_completion_nudge(completion_nudge),
         "",
+        "Execution hygiene:",
+        "- When running benchmarks with `--stream-logs`, redirect output to a temp logfile and inspect with bounded `tail` windows.",
+        "- Avoid flooding interactive context with full raw stream output; summarize only relevant failure snippets and reasons.",
+        "",
         "Investigation-informed refinements:",
         format_inspection_nudges(inspection_nudges),
         ""

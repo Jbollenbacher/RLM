@@ -129,6 +129,16 @@ mix rlm.bench.optimize \
   --tasks bench_data/tasks/pool_v1.jsonl \
   --base-variant bench/variants/champion_v1.md \
   --cycles 10
+
+# Optional: stream logs to a temp file and inspect via tail (low context pollution)
+mix rlm.bench.run \
+  --tasks bench_data/tasks/pool_v1.jsonl \
+  --variant bench/variants/champion_v1.md \
+  --limit 12 \
+  --stream-logs \
+  > /tmp/rlm_bench_stream.log 2>&1
+
+tail -n 120 -f /tmp/rlm_bench_stream.log
 ```
 
 Quiet mode suppresses per-task subprocess output and writes logs to:

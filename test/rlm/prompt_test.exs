@@ -50,4 +50,24 @@ defmodule RLM.PromptTest do
       assert output =~ "\"major_sections\" in globals()"
     end
   end
+
+  describe "check-in nudges" do
+    test "dispatch assessment check-in nudge enforces assessment-only step" do
+      output = RLM.Prompt.dispatch_assessment_checkin_nudge()
+
+      assert output =~ "respond with exactly one Python code block"
+      assert output =~ "assess_dispatch(\"satisfied\""
+      assert output =~ "Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`"
+      assert output =~ "Do not set `final_answer` again"
+    end
+
+    test "subagent assessment check-in nudge enforces assessment-only step" do
+      output = RLM.Prompt.subagent_assessment_checkin_nudge(["agent_1"])
+
+      assert output =~ "respond with exactly one Python code block"
+      assert output =~ "assess_lm_query(child_agent_id"
+      assert output =~ "Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`"
+      assert output =~ "Do not set `final_answer` again"
+    end
+  end
 end

@@ -1,0 +1,26 @@
+{
+  "profile": "easy_v1",
+  "target_task_count": 40,
+  "required_min_dispatches": 2,
+  "families": [
+    "cross_section_compare",
+    "constraint_extraction_matrix",
+    "procedure_reconstruction"
+  ],
+  "segment_size_chars": 4000,
+  "segment_overlap_chars": 300,
+  "task_wrapper_path": "bench/templates/task_wrapper_easy.md",
+  "run_defaults": {
+    "batch_size": 8,
+    "quiet": true,
+    "sample_rate": 1.0,
+    "failure_tail_lines": 60,
+    "max_log_inspections": 2,
+    "inspection_tail_lines": 100
+  },
+  "ab_thresholds": {
+    "min_assessment_volume": 16,
+    "max_coverage_drop": 0.04,
+    "min_objective_delta": 0.02
+  }
+}

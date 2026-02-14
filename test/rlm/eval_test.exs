@@ -175,6 +175,35 @@ except Exception as exc:
 
       assert stdout =~ "still running"
     end
+
+    test "bridge requests stay functional under workspace guard for multiple await calls" do
+      workspace =
+        Path.join(System.tmp_dir!(), "rlm_eval_workspace_#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(workspace)
+
+      on_exit(fn -> File.rm_rf(workspace) end)
+
+      {:ok, stdout, _stderr, _result, _bindings} =
+        RLM.Eval.eval(
+          ~s[
+job_a = lm_query("subtask-a")
+job_b = lm_query("subtask-b")
+
+result_a = await_lm_query(job_a, timeout_ms=2_000)
+result_b = await_lm_query(job_b, timeout_ms=2_000)
+
+print(result_a)
+print(result_b)
+],
+          workspace_root: workspace,
+          workspace_read_only: true,
+          lm_query: fn text, _opts -> {:ok, "done:" <> text} end
+        )
+
+      assert stdout =~ "done:subtask-a"
+      assert stdout =~ "done:subtask-b"
+    end
   end
 
   describe "dispatch assessment helper" do
