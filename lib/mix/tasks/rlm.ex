@@ -16,6 +16,7 @@ defmodule Mix.Tasks.Rlm do
           single_turn: :boolean,
           export_logs: :boolean,
           export_logs_path: :string,
+          export_logs_debug: :boolean,
           verbose: :boolean,
           debug: :boolean,
           web: :boolean,
@@ -32,6 +33,7 @@ defmodule Mix.Tasks.Rlm do
     workspace_read_only = Keyword.get(opts, :read_only, false)
     validate_read_only(workspace_root, workspace_read_only)
     export_logs_path = resolve_export_logs_path(opts)
+    export_logs_debug = Keyword.get(opts, :export_logs_debug, false)
 
     context = read_stdin()
     web? = Keyword.get(opts, :web, false)
@@ -79,7 +81,7 @@ defmodule Mix.Tasks.Rlm do
             )
 
           exit_code = print_single_turn_result(result)
-          maybe_export_logs(export_logs_path)
+          maybe_export_logs(export_logs_path, export_logs_debug)
 
           if exit_code != 0 do
             System.halt(exit_code)
@@ -191,13 +193,13 @@ defmodule Mix.Tasks.Rlm do
     end
   end
 
-  defp maybe_export_logs(nil), do: :ok
+  defp maybe_export_logs(nil, _debug), do: :ok
 
-  defp maybe_export_logs(path) do
+  defp maybe_export_logs(path, debug) do
     target = normalize_export_path(path)
     File.mkdir_p!(Path.dirname(target))
 
-    export = RLM.Observability.Export.full_agent_logs(include_system: true, debug: false)
+    export = RLM.Observability.Export.full_agent_logs(include_system: true, debug: debug)
     File.write!(target, Jason.encode!(export, pretty: true))
 
     IO.puts(:stderr, "Saved agent logs to #{target}")

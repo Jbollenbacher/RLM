@@ -29,6 +29,10 @@ RLM (Recursive Language Model) is an Elixir-hosted recursive agent loop:
   - Unit + contract tests, with integration tests behind `RLM_RUN_INTEGRATION`.
 - `docs/`
   - Architecture/reference docs (includes this architecture map plus supporting assessment notes).
+- `bench/`
+  - Assessment-driven benchmark manifests/profiles/templates and tracked prompt variants.
+- `bench_data/` (gitignored)
+  - Pulled corpora, generated task contexts/pools, run logs/exports, AB reports, and optimizer sessions.
 - `workspace/`
   - Example/project-local workspace content used by workspace helper flows.
 - `_build/`, `deps/`
@@ -59,8 +63,17 @@ RLM (Recursive Language Model) is an Elixir-hosted recursive agent loop:
     - workspace mode (`--workspace`, optional `--read-only`)
     - web mode (`--web`, `--web-port`)
     - export logs mode (`--export-logs`, `--export-logs-path`)
+    - export-log view control (`--export-logs-debug` for debug/full event export)
     - logger controls (`--verbose`, `--debug`)
   - Reads stdin context and query positional args.
+- `lib/mix/tasks/rlm.bench.*.ex`
+  - Assessment optimization pipeline:
+    - corpus pull-down (`rlm.bench.pull`)
+    - task generation (`rlm.bench.build`)
+    - quiet benchmark run + log capture (`rlm.bench.run`)
+    - run comparison (`rlm.bench.ab`)
+    - autonomous prompt-only optimization loop (`rlm.bench.optimize`)
+    - saved log inspection (`rlm.bench.logs`)
 
 ### 3.4 Web UI/HTTP
 
@@ -316,6 +329,12 @@ Web chat flow:
 
 - `config/dev.exs`, `config/test.exs`, `config/prod.exs`
   - Currently minimal (`import Config` only).
+
+### 9.4 Benchmark Variant Prompt Override
+
+- `RLM_SYSTEM_PROMPT_PATH`
+  - Optional runtime override for loading a full system prompt variant from an explicit file path.
+  - Used by benchmark/optimizer runs to compare prompt variants without editing `priv/system_prompt.md`.
 
 ## 10. Test Coverage Map
 

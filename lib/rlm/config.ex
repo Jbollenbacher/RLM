@@ -18,7 +18,8 @@ defmodule RLM.Config do
     :http_pool_timeout,
     :http_receive_timeout,
     :obs_max_context_window_chars,
-    :max_concurrent_agents
+    :max_concurrent_agents,
+    :system_prompt_path
   ]
 
   def load(overrides \\ []) do
@@ -41,7 +42,8 @@ defmodule RLM.Config do
       http_pool_timeout: get(overrides, :http_pool_timeout),
       http_receive_timeout: get(overrides, :http_receive_timeout),
       obs_max_context_window_chars: get(overrides, :obs_max_context_window_chars),
-      max_concurrent_agents: get(overrides, :max_concurrent_agents)
+      max_concurrent_agents: get(overrides, :max_concurrent_agents),
+      system_prompt_path: get(overrides, :system_prompt_path)
     }
   end
 

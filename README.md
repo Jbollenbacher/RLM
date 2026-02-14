@@ -101,3 +101,44 @@ Quick module overview:
 - `RLM.Session` — Multi-turn session wrapper that preserves history and bindings
 - `RLM.Observability.Router`/`RLM.Observability.UI` — Embedded web observability API + HTML shell with JS parts loaded from `priv/observability_ui/*.js`
 - `Mix.Tasks.Rlm` — CLI entrypoint (single-turn and interactive sessions)
+
+## Benchmark Optimization Harness
+
+The repo now includes an assessment-driven benchmark harness under `bench/` and `mix rlm.bench.*` tasks.
+It optimizes prompt variants using internal delegation assessments, not external answer keys.
+
+```bash
+# 1) Pull benchmark source corpus into gitignored bench_data/raw/
+mix rlm.bench.pull
+
+# 2) Build delegation-heavy benchmark task pool
+mix rlm.bench.build --profile bench/profiles/optimize_v1.json
+
+# 3) Run a quiet benchmark batch (logs saved per task)
+mix rlm.bench.run \
+  --tasks bench_data/tasks/pool_v1.jsonl \
+  --variant bench/variants/champion_v1.md \
+  --limit 12 \
+  --quiet
+
+# 4) Compare two runs (assessment objective + coverage thresholds)
+mix rlm.bench.ab --run-a <run_id_a> --run-b <run_id_b>
+
+# 5) Run autonomous prompt-only optimization cycles
+mix rlm.bench.optimize \
+  --tasks bench_data/tasks/pool_v1.jsonl \
+  --base-variant bench/variants/champion_v1.md \
+  --cycles 10
+```
+
+Quiet mode suppresses per-task subprocess output and writes logs to:
+- `bench_data/runs/<run_id>/task_logs/<task_id>.log`
+- `bench_data/runs/<run_id>/task_logs/<task_id>.meta.json`
+
+Benchmark runs export debug/full event logs by default, and optimizer cycles can automatically inspect weak runs to surface failure patterns before the next prompt tweak.
+
+Inspect a saved logfile tail without rerunning:
+
+```bash
+mix rlm.bench.logs --run-id <run_id> --task <task_id> --tail 120
+```

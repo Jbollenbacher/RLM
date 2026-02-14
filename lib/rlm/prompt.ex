@@ -36,9 +36,19 @@ defmodule RLM.Prompt do
   Do not redo prior work.
   """
 
+  @default_system_prompt_path Path.join(:code.priv_dir(:rlm), "system_prompt.md")
+
   @spec system_prompt() :: String.t()
-  def system_prompt do
-    File.read!(Path.join(:code.priv_dir(:rlm), "system_prompt.md"))
+  def system_prompt, do: File.read!(@default_system_prompt_path)
+
+  @spec system_prompt(RLM.Config.t() | map() | nil) :: String.t()
+  def system_prompt(nil), do: system_prompt()
+
+  def system_prompt(config) do
+    case Map.get(config, :system_prompt_path) do
+      path when is_binary(path) and path != "" -> File.read!(path)
+      _ -> system_prompt()
+    end
   end
 
   @spec initial_user_message(String.t(), keyword()) :: String.t()

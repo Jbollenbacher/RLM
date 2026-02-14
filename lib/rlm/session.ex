@@ -43,7 +43,7 @@ defmodule RLM.Session do
       last_result: nil
     ]
 
-    history = [%{role: :system, content: RLM.Prompt.system_prompt()}]
+    history = [%{role: :system, content: RLM.Prompt.system_prompt(config)}]
 
     RLM.Observability.emit(
       [:rlm, :agent, :start],

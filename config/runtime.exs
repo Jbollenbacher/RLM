@@ -45,7 +45,8 @@ overrides = [
   {"RLM_TRUNCATION_TAIL", :truncation_tail, parse_int},
   {"RLM_EVAL_TIMEOUT", :eval_timeout, parse_int},
   {"RLM_LM_QUERY_TIMEOUT", :lm_query_timeout, parse_int},
-  {"RLM_SUBAGENT_ASSESSMENT_SAMPLE_RATE", :subagent_assessment_sample_rate, parse_float}
+  {"RLM_SUBAGENT_ASSESSMENT_SAMPLE_RATE", :subagent_assessment_sample_rate, parse_float},
+  {"RLM_SYSTEM_PROMPT_PATH", :system_prompt_path, parse_string}
 ]
 
 Enum.each(overrides, fn {env_name, key, parser} ->

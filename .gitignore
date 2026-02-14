@@ -46,3 +46,6 @@ todo.md
 # Test workspace
 workspace/
 # rlm_agent_logs*.json
+
+# Benchmark runtime data (pulled corpora, generated tasks, run logs)
+bench_data/

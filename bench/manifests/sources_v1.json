@@ -1,0 +1,35 @@
+{
+  "version": "v1",
+  "sources": [
+    {
+      "id": "pg_1342",
+      "url": "https://www.gutenberg.org/cache/epub/1342/pg1342.txt",
+      "type": "gutenberg_txt",
+      "license": "Public Domain"
+    },
+    {
+      "id": "pg_1661",
+      "url": "https://www.gutenberg.org/cache/epub/1661/pg1661.txt",
+      "type": "gutenberg_txt",
+      "license": "Public Domain"
+    },
+    {
+      "id": "pg_2701",
+      "url": "https://www.gutenberg.org/cache/epub/2701/pg2701.txt",
+      "type": "gutenberg_txt",
+      "license": "Public Domain"
+    },
+    {
+      "id": "rfc_9000",
+      "url": "https://www.rfc-editor.org/rfc/rfc9000.txt",
+      "type": "rfc_txt",
+      "license": "IETF Trust"
+    },
+    {
+      "id": "rfc_9110",
+      "url": "https://www.rfc-editor.org/rfc/rfc9110.txt",
+      "type": "rfc_txt",
+      "license": "IETF Trust"
+    }
+  ]
+}
