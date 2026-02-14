@@ -199,6 +199,9 @@ defmodule RLM.Bench.Optimizer do
     top_bucket = top_bucket(counts)
     primary_nudge = nudge_for_bucket(top_bucket)
     inspection_nudges = Map.get(inspection, :recommendations, [])
+    completion_rate = get_number(run_summary, :task_completion_rate, 1.0)
+    failed_count = trunc(get_number(run_summary, :failed_count, 0.0))
+    completion_nudge = completion_nudge(completion_rate, failed_count)
 
     patch =
       [
@@ -210,6 +213,9 @@ defmodule RLM.Bench.Optimizer do
         "Observed issue bucket: #{top_bucket}",
         "",
         primary_nudge,
+        "",
+        "Completion signal:",
+        format_completion_nudge(completion_nudge),
         "",
         "Investigation-informed refinements:",
         format_inspection_nudges(inspection_nudges),
@@ -254,6 +260,23 @@ defmodule RLM.Bench.Optimizer do
     "Use delegation intentionally: narrow tasks, explicit output schema, and explicit usefulness assessment reasons."
   end
 
+  defp completion_nudge(completion_rate, failed_count)
+       when completion_rate < 0.8 or failed_count >= 2 do
+    "Increase completion discipline: use smaller integration steps, check progress every turn, and commit `final_answer` promptly once minimum evidence is sufficient."
+  end
+
+  defp completion_nudge(completion_rate, failed_count)
+       when completion_rate < 0.95 or failed_count >= 1 do
+    "Guard against run-level failure: explicitly track unresolved blockers and ensure each loop moves toward a concrete final commit."
+  end
+
+  defp completion_nudge(_completion_rate, _failed_count), do: nil
+
+  defp format_completion_nudge(nil),
+    do: "- Completion rate healthy; no extra completion-specific patch."
+
+  defp format_completion_nudge(nudge), do: "- " <> nudge
+
   defp format_inspection_nudges([]), do: "- No additional investigation recommendations."
 
   defp format_inspection_nudges(nudges) do
@@ -268,4 +291,25 @@ defmodule RLM.Bench.Optimizer do
 
   defp stringify_map_keys(list) when is_list(list), do: Enum.map(list, &stringify_map_keys/1)
   defp stringify_map_keys(other), do: other
+
+  defp get_number(map, key, default) when is_map(map) do
+    value = Map.get(map, key, Map.get(map, to_string(key), default))
+
+    cond do
+      is_float(value) ->
+        value
+
+      is_integer(value) ->
+        value * 1.0
+
+      is_binary(value) ->
+        case Float.parse(value) do
+          {num, _} -> num
+          _ -> default
+        end
+
+      true ->
+        default
+    end
+  end
 end

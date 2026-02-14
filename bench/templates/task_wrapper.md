@@ -6,6 +6,7 @@ Mandatory requirements:
 3. For sampled terminal subagents, record `assess_lm_query(...)` with a specific reason.
 4. Set `final_answer` only after collecting delegated results and recording required assessments.
 5. If delegation fails, recover by narrowing/reframing dispatch prompts before finalizing.
+6. Completion is required: successfully set `final_answer` for this task. Strong delegation quality alone is not enough if the task run ends in failure.
 
 Task family instruction:
 {{family_instruction}}
