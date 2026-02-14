@@ -66,6 +66,8 @@ defmodule RLM.PromptTest do
 
       assert output =~ "respond with exactly one Python code block"
       assert output =~ "assess_lm_query(child_agent_id"
+      assert output =~ "Use the exact `child_agent_id` values listed below as literal arguments"
+      assert output =~ "agent_1: assess_lm_query(\"agent_1\""
       assert output =~ "Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`"
       assert output =~ "Do not set `final_answer` again"
     end

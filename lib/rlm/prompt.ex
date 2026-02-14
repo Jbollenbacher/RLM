@@ -39,6 +39,8 @@ defmodule RLM.Prompt do
   Your final answer has been staged and will be returned automatically.
   In this turn, respond with exactly one Python code block and only record missing assessments with:
   `assess_lm_query(child_agent_id, "satisfied"|"dissatisfied", reason="...")`.
+  Use the exact `child_agent_id` values listed below as literal arguments.
+  Do not rely on alias variables that may have been reassigned after retries.
   Any response without executable Python code will be treated as a failed check-in.
   Do not call `lm_query`, `await_lm_query`, or `poll_lm_query`.
   Do not set `final_answer` again.
@@ -133,15 +135,23 @@ defmodule RLM.Prompt do
 
   @spec subagent_assessment_checkin_nudge([String.t()]) :: String.t()
   def subagent_assessment_checkin_nudge(child_ids) when is_list(child_ids) do
-    pending =
-      child_ids
-      |> Enum.map(&to_string/1)
-      |> Enum.uniq()
-      |> Enum.join(", ")
+    pending_ids = child_ids |> Enum.map(&to_string/1) |> Enum.uniq()
+    pending = if pending_ids == [], do: "(none captured)", else: Enum.join(pending_ids, ", ")
+
+    examples =
+      if pending_ids == [] do
+        ""
+      else
+        "\nUse one call per pending child:\n" <>
+          Enum.map_join(
+            pending_ids,
+            "\n",
+            &"  - #{&1}: assess_lm_query(\"#{&1}\", \"satisfied\"|\"dissatisfied\", reason=\"...\")"
+          )
+      end
 
     @subagent_assessment_checkin_nudge_prefix <>
-      "\nPending child_agent_id values: " <>
-      if(pending == "", do: "(none captured)", else: pending) <> "]"
+      "\nPending child_agent_id values: " <> pending <> examples <> "]"
   end
 
   @spec survey_checkin_nudge([String.t()]) :: String.t()
